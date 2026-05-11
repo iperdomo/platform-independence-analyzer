@@ -36,6 +36,30 @@ A single `PLATFORM-DEPENDENCY-ANALYSIS.md` file containing:
 The skill does not modify source code. Remediation is a separate, explicit
 follow-up.
 
+## Requirements
+
+- [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) must be installed and
+  available on `PATH`. The skill uses `rg` to locate vendor SDK call sites
+  across the repository; without it the audit step will fail.
+
+  Install on common systems:
+
+  ```
+  # Arch / Manjaro
+  sudo pacman -S ripgrep
+
+  # Debian / Ubuntu
+  sudo apt install ripgrep
+
+  # macOS (Homebrew)
+  brew install ripgrep
+
+  # Fedora
+  sudo dnf install ripgrep
+  ```
+
+  Verify with `rg --version`.
+
 ## Install locally in Claude Code
 
 Claude Code loads skills from `~/.claude/skills/<skill-name>/`. To install

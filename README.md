@@ -16,18 +16,45 @@ classifies its severity, and recommends a concrete abstraction.
 - Declared dependencies in manifests (`package.json`, `pyproject.toml`,
   `requirements.txt`, `pom.xml`, `build.gradle`, `go.mod`, `Gemfile`,
   `composer.json`, `Cargo.toml`) that point at proprietary services.
+- Proprietary LLM/AI SaaS APIs (OpenAI, Anthropic, Gemini, Cohere, Mistral)
+  used directly from business code. An LLM SDK pointed at a self-hostable,
+  OpenAI-compatible endpoint via `base_url` (vLLM, Ollama, LiteLLM, LocalAI,
+  TGI) is treated like the S3 case - reduced lock-in, not flagged.
 
 OSI-approved open-source dependencies (PostgreSQL, MySQL, SQLite, Redis,
 Valkey, Cassandra, etc.) and open protocols (HTTP, SMTP, OAuth, gRPC, S3 API)
 are treated as acceptable and are not flagged.
 
+## How it works: a two-tier audit
+
+The skill runs in two tiers to keep classification honest:
+
+1. **Tier 1 - Scan (draft).** A cheap mechanical pass inventories manifests,
+   greps for vendor usage, and writes a *draft* report. Every finding gets a
+   stable claim ID (`PDA-001`, `PDA-002`, ...) and is marked `Status:
+   UNVERIFIED`; its severity is tentative (shown with a trailing `?`, e.g.
+   `[High?]`) because it is guessed from file names and paths alone.
+2. **Tier 2 - Verify.** A fresh-context subagent reads each flagged call site,
+   runs the cross-file checks Tier 1 skips (does a file *really* wrap a vendor,
+   or is the SDK imported elsewhere too?), and marks each claim `CONFIRMED`,
+   `ADJUSTED`, or `REJECTED`. The main agent then recomputes the severity table
+   from the verified findings and flips the report header to `Verification:
+   completed`.
+
+An intermediate report containing `Status: UNVERIFIED` findings or a
+`Verification: pending` header is a draft, not the finished audit - the skill
+runs Tier 2 and finalizes before presenting results.
+
 ## What it produces
 
 A single `PLATFORM-DEPENDENCY-ANALYSIS.md` file containing:
 
-- Executive summary with a severity count table (Critical / High / Medium / Low).
-- One section per finding, each citing exact `path:line` locations and a
-  recommended fix.
+- A header line recording verification status (`pending` while drafting,
+  `completed <date>` once verified).
+- Executive summary with a severity count table (Critical / High / Medium /
+  Low), computed after verification.
+- One section per finding, each with a claim ID, a `Status:` line, exact
+  `path:line` locations, and a recommended fix.
 - A list of acceptable dependencies (informational).
 - Architecture recommendations.
 - A file index mapping every touched file to vendor, classification, and
@@ -60,6 +87,12 @@ follow-up.
 
   Verify with `rg --version`.
 
+  The skill bundles `scripts/scan.sh`, a deterministic ripgrep-only scanner that
+  runs every vendor pattern and prints grouped `file:line:match` hits. Tier 1
+  runs it when present (falling back to freehand ripgrep otherwise). It needs
+  nothing beyond `rg`; run it directly with
+  `bash scripts/scan.sh <repo-root>` if you want the raw hit list.
+
 ## Install locally in Claude Code
 
 Claude Code loads skills from `~/.claude/skills/<skill-name>/`. To install
@@ -86,6 +119,8 @@ layout should look like:
   references/
     dependency-patterns.md
     abstraction-examples.md
+  scripts/
+    scan.sh
 ```
 
 Restart Claude Code (or start a new session) so the skill is picked up. No
@@ -115,10 +150,12 @@ $ claude
 > Audit this repository for vendor lock-in and produce the report.
 ```
 
-Claude will scan manifests, grep for known vendor patterns, classify each
-hit, and write `PLATFORM-DEPENDENCY-ANALYSIS.md` at the project root. Review
-the report, decide which findings to act on, and then ask Claude to
-implement the recommended adapters in a follow-up turn.
+Claude will scan manifests, grep for known vendor patterns, and write a draft
+`PLATFORM-DEPENDENCY-ANALYSIS.md` (Tier 1), then spawn a verifier subagent to
+confirm or correct each finding (Tier 2) and finalize the report with a
+verified severity table. Review the finished report, decide which findings to
+act on, and then ask Claude to implement the recommended adapters in a
+follow-up turn.
 
 ## Verify it is loaded
 

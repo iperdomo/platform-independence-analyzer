@@ -75,31 +75,41 @@ repository.findById(id);
 
 ## Configuration Patterns
 
-### Direct Configuration - VIOLATION
+Reading vendor configuration (API keys, project IDs, endpoints) from env vars
+or a config file is **Acceptable** — it is not a violation on its own. Config
+does not invoke the SDK, and every vendor needs some configuration regardless
+of how well the code is abstracted. The lock-in question is whether *business
+logic* calls the SDK, not whether config names a vendor.
+
 ```javascript
-// Hardcoded service configuration
+// Acceptable: config names a vendor but invokes nothing.
 const firebaseConfig = {
-  apiKey: "...",
-  authDomain: "...",
-  projectId: "..."
+  apiKey: process.env.FIREBASE_API_KEY,
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.FIREBASE_PROJECT_ID
 };
-firebase.initializeApp(firebaseConfig);
+firebase.initializeApp(firebaseConfig); // classified by WHERE this runs
 ```
 
-### Abstracted Configuration - GOOD
-```javascript
-// Service-agnostic configuration
-const authConfig = config.get('auth');
-const authService = AuthServiceFactory.create(authConfig);
-```
+Classify such a site by the file's role (Step 4): a call like
+`initializeApp(...)` in a bootstrap/composition root is Acceptable; the same
+call scattered through domain code is the violation — because of the direct
+SDK use in domain code, not because the config mentions a vendor.
 
 ## Common Anti-Patterns
 
-1. **Scattered API calls**: Service calls throughout business logic
-2. **Direct SDK usage**: Using vendor SDKs directly in domain code
-3. **Tight coupling**: Business logic that assumes specific service behavior
-4. **Missing interfaces**: No abstraction between domain and infrastructure
-5. **Configuration coupling**: Service-specific config in business logic
+Vendor-lock-in shapes to flag (in scope for this skill):
+
+1. **Scattered API calls**: vendor SDK calls throughout business logic.
+2. **Direct SDK usage**: using vendor SDKs directly in domain code instead of
+   through an adapter/port/repository.
+3. **Vendor types in public interfaces**: an abstraction exists but leaks
+   vendor types through its public surface.
+
+Out of scope (do NOT flag — these are architectural-quality concerns, not
+lock-in): general tight coupling, missing interfaces around open-source
+libraries, or config that merely names a vendor. See the SKILL.md scope
+section.
 
 ## Detection Keywords
 
@@ -119,28 +129,60 @@ const authService = AuthServiceFactory.create(authConfig);
 - `pusher`, `pubnub`, `ably`
 - `mapbox`, `here-`, `@here/`
 - `intercom`, `zendesk`, `salesforce`, `@salesforce/`
+- LLM/AI SaaS APIs (proprietary services behind permissively licensed SDKs —
+  the service, not the client license, creates the lock-in):
+  - `openai`, `OpenAI`, `AzureOpenAI` (see the base_url note under acceptable patterns)
+  - `@anthropic-ai/sdk`, `anthropic`, `Anthropic`, `AnthropicBedrock`, `AnthropicVertex`
+  - `@google/generative-ai`, `@google/genai`, `google-generativeai`, `google-genai`, `genai`
+  - `cohere-ai`, `cohere`, `CohereClient`
+  - `@mistralai/mistralai`, `mistralai`, `MistralClient`
+  - OpenAI-compatible providers (Groq, Together, Perplexity, Fireworks, ...) are
+    usually reached via the OpenAI SDK with a `base_url` — they surface under the
+    `openai` sweep, then the endpoint check decides lock-in.
 
 ### Ripgrep One-Liners
 
-Run these in parallel from the repo root. Always include the standard skip globs.
+Run these in parallel from the repo root.
+
+Skip globs: ripgrep respects `.gitignore` by default, so the usual build and
+dependency directories (`node_modules`, `dist`, `build`, `.venv`,
+`__pycache__`, `target`, `.next`, `coverage`) are already excluded when they
+are gitignored — do not pass them explicitly. Only add `--glob` for cases
+ripgrep will not skip on its own:
+
+- `--glob '!**/vendor/**'` — Go/PHP `vendor/` dirs are often committed (the
+  `**/` prefix matches `vendor/` at any depth, not just the repo root).
+- `--glob '!**/*.lock'` `--glob '!**/package-lock.json'` — lock files can
+  contain vendor package names and produce noise.
+- `--glob '!**/*.md'` — exclude docs/READMEs from vendor sweeps; they mention
+  vendor names in prose, not in code.
+
+Patterns use `-i` (case-insensitive, so `Twilio`/`SENDGRID` match) and word
+boundaries (`\b...\b`) where a bare vendor name would otherwise match
+substrings and prose. Restrict to source globs (e.g. `--glob '*.ts'`) when a
+pattern is still too noisy.
 
 ```bash
-# Standard skip set
-SKIP="--glob '!node_modules' --glob '!dist' --glob '!build' --glob '!vendor' --glob '!.venv' --glob '!__pycache__' --glob '!target' --glob '!.next' --glob '!coverage'"
-
-# Per-vendor patterns (substitute $SKIP)
-rg -n "from ['\"]firebase|firebase-admin|firestore\\(|getFirestore" $SKIP
-rg -n "@googlemaps|google\\.maps|googlemaps\\.Client|new google\\." $SKIP
-rg -n "from ['\"]stripe['\"]|import Stripe|stripe\\.[a-zA-Z]" $SKIP
-rg -n "MongoClient|mongoose|pymongo|com\\.mongodb" $SKIP
-rg -n "twilio|@sendgrid|sendgrid\\.[a-zA-Z]" $SKIP
-rg -n "aws-sdk|boto3|@aws-sdk" $SKIP
-rg -n "@azure/|azure\\.identity|azure\\.storage" $SKIP
-rg -n "@google-cloud/|google\\.cloud\\." $SKIP
-rg -n "algoliasearch|@algolia/" $SKIP
-rg -n "auth0|@auth0/|@okta/|okta-auth" $SKIP
-rg -n "segment\\.io|mixpanel|amplitude\\.|posthog" $SKIP
-rg -n "datadog|dd-trace|newrelic|@datadog/" $SKIP
+# Per-vendor patterns. Add the exclusions above as needed, e.g.:
+#   rg -in "\btwilio\b" --glob '!**/*.md' --glob '!**/vendor/**'
+rg -in "from ['\"]firebase|firebase-admin|firestore\\(|getFirestore"
+rg -in "@googlemaps|google\\.maps|googlemaps\\.Client|new google\\."
+rg -in "from ['\"]stripe['\"]|import Stripe|\\bstripe\\.[a-zA-Z]"
+rg -in "\bMongoClient\b|\bmongoose\b|\bpymongo\b|com\\.mongodb"
+rg -in "\btwilio\b|@sendgrid|\bsendgrid\\.[a-zA-Z]"
+rg -in "aws-sdk|\bboto3\b|@aws-sdk"
+rg -in "@azure/|azure\\.identity|azure\\.storage"
+rg -in "@google-cloud/|google\\.cloud\\."
+rg -in "algoliasearch|@algolia/"
+rg -in "\bauth0\b|@auth0/|@okta/|okta-auth"
+rg -in "segment\\.io|\bmixpanel\b|\bamplitude\\.|\bposthog\b"
+rg -in "\bdatadog\b|dd-trace|\bnewrelic\b|@datadog/"
+# LLM/AI SaaS SDKs (mirror of scripts/scan.sh)
+rg -in "from ['\"]?openai\b|require\\(['\"]openai|\bimport openai\b|\bOpenAI\\(|\bAzureOpenAI\\(|\bopenai\\.[a-zA-Z]"
+rg -in "@anthropic-ai/|from ['\"]?anthropic\b|\bimport anthropic\b|\bAnthropic\\(|AnthropicBedrock|AnthropicVertex|\banthropic\\.[a-zA-Z]"
+rg -in "@google/generative-ai|@google/genai|google-genai|google[-.]generativeai|google import genai|\bGoogleGenerativeAI\b|\bgenai\\.[a-zA-Z]"
+rg -in "cohere-ai|from ['\"]?cohere\b|\bimport cohere\b|\bCohereClient\b|\bcohere\\.[a-zA-Z]"
+rg -in "@mistralai/|from ['\"]?mistralai\b|\bimport mistralai\b|\bMistralClient\b|\bMistral\\(|\bmistralai\\.[a-zA-Z]"
 ```
 
 ## Non-Violation Patterns (do not flag)
@@ -167,5 +209,19 @@ container.bind(PaymentService).toConstantValue(new StripePaymentAdapter(new Stri
 import boto3
 s3 = boto3.client("s3", endpoint_url=os.environ["S3_ENDPOINT"])
 ```
+
+```python
+# LLM SDK pointed at a self-hostable, OpenAI-compatible endpoint via base_url —
+# reduced lock-in (like S3's endpoint_url). The same code runs against vLLM,
+# Ollama, LiteLLM, LocalAI, or TGI, so the OpenAI service is swappable.
+from openai import OpenAI
+client = OpenAI(base_url=os.environ["LLM_BASE_URL"], api_key=os.environ["LLM_KEY"])
+```
+
+Caveat for the LLM case: a `base_url`/`baseURL` override is acceptable only when it
+points at a self-hostable / open-weight runtime. If it points at another
+proprietary SaaS (Azure OpenAI, Groq, Together, Perplexity) or the call uses
+Bedrock/Vertex, it is still a finding — re-attribute it to that vendor. With no
+override at all, treat it as the vendor's default hosted API (a finding).
 
 When you see these shapes, classify the file as Adapter, Bootstrap, or Acceptable and exclude it from the violation list.

@@ -319,6 +319,12 @@ returns, the main agent must:
 5. Flip the header line to `- Verification: completed <YYYY-MM-DD>`.
 6. Relay a concise summary to the user: counts by severity, how many claims were confirmed / adjusted / rejected, and
    the top one or two concerns — because the subagent's report never reaches them.
+7. If available, produce a html version of the report using `marked`, first test if the tool is present
+
+```bash
+   command -v marked # if present, execute the conversion
+   marked PLATFORM-DEPENDENCY-ANALYSIS.md > PLATFORM-DEPENDENCY-ANALYSIS.html
+```
 
 ## When to Read the References
 
@@ -333,4 +339,4 @@ returns, the main agent must:
 - Cite every claim with `path:line`. Do not paraphrase code without showing it.
 - Keep each code snippet in the report to roughly ten lines.
 - If the repo is clean (no violations), still emit the report so the user has documentation of that fact and the acceptable dependencies.
-- Plain ASCII only. No emojis.
+- Plain ASCII only. No emojis. No utf-8 characters.

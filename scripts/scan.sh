@@ -12,7 +12,16 @@
 # searched for, not that the repo is clean. See SKILL.md Step 3.
 # Usage:    scripts/scan.sh [ROOT_DIR]      (ROOT_DIR defaults to ".")
 #
+# Output shape: a per-vendor HIT SUMMARY first, then the grouped detail. Compare
+# the summary counts against the detail you actually received - if they disagree,
+# the output was truncated somewhere downstream and the draft would be silently
+# incomplete. Redirect to a file and read that rather than piping to a tool with
+# an output cap.
+#
 # Exit codes: 0 = ran (with or without hits); 127 = ripgrep not installed.
+# ripgrep is a hard requirement - on 127 the audit stops and the user installs
+# rg. Do not substitute another search path: findings must come from this exact
+# reproducible scan.
 #
 # ripgrep respects .gitignore by default, so node_modules/dist/build/.venv/
 # target/.next/coverage are already skipped when gitignored. The --glob
@@ -25,6 +34,7 @@ ROOT="${1:-.}"
 
 if ! command -v rg >/dev/null 2>&1; then
   echo "error: ripgrep (rg) is required but was not found on PATH" >&2
+  echo "install it (pacman -S ripgrep / apt install ripgrep / brew install ripgrep), then re-run" >&2
   exit 127
 fi
 
@@ -33,6 +43,7 @@ EXCLUDES=(
   --glob '!**/*.lock'
   --glob '!**/package-lock.json'
   --glob '!**/*.md'
+  --glob '!**/PLATFORM-DEPENDENCY-ANALYSIS.*'
 )
 
 # Parallel arrays: LABELS[i] is the vendor name, PATTERNS[i] its rg regex.
@@ -44,27 +55,27 @@ LABELS=(
   "Stripe"
   "MongoDB"
   "Twilio / SendGrid"
-  "AWS (non-S3 - filter S3-only in Step 6)"
+  "AWS (non-S3 - filter S3-only per classification-rules R4)"
   "Azure"
   "Google Cloud"
   "Algolia"
   "Auth0 / Okta"
   "Analytics (Segment/Mixpanel/Amplitude/PostHog)"
   "Observability (Datadog/New Relic)"
-  "OpenAI (check for base_url override - see Step 6)"
+  "OpenAI (check for base_url override - classification-rules R4/R5)"
   "Anthropic"
   "Google Gemini"
   "Cohere"
   "Mistral"
-  "LLM wrapper SDKs (attribute to the underlying vendor - see Step 6)"
+  "LLM wrapper SDKs (attribute to the underlying vendor - classification-rules R4)"
   "Vendor API endpoints, raw HTTP (deliberately noisy - Tier 2 prunes)"
 )
 PATTERNS=(
-  "from ['\"]firebase|firebase-admin|firestore\\(|getFirestore|firebase\\.google\\.com/go|com\\.google\\.firebase|\\bFirebaseAdmin\\b"
+  "from ['\"]firebase|require\\(['\"]firebase|firebase-admin|firestore\\(|getFirestore|firebase\\.google\\.com/go|com\\.google\\.firebase|\\bFirebaseAdmin\\b"
   "@googlemaps|google\\.maps|googlemaps\\.Client|new google\\.|googlemaps\\.github\\.io/maps"
-  "from ['\"]stripe['\"]|import Stripe|\\bstripe\\.[a-zA-Z]|stripe/stripe-go|using Stripe\\b|\\bStripeConfiguration\\b"
-  "\\bMongoClient\\b|\\bmongoose\\b|\\bpymongo\\b|com\\.mongodb|go\\.mongodb\\.org|mongo-driver|MongoDB\\.Driver"
-  "\\btwilio\\b|@sendgrid|\\bsendgrid\\b"
+  "from ['\"]stripe['\"]|require\\(['\"]stripe|import Stripe|\\bstripe\\.[a-zA-Z]|stripe/stripe-go|using Stripe\\b|\\bStripeConfiguration\\b"
+  "\\bMongoClient\\b|require\\(['\"](mongodb|mongoose)|\\bmongoose\\b|\\bpymongo\\b|com\\.mongodb|go\\.mongodb\\.org|mongo-driver|MongoDB\\.Driver"
+  "\\btwilio\\b|require\\(['\"](twilio|@sendgrid)|@sendgrid|\\bsendgrid\\b"
   "aws-sdk|\\bboto3\\b|@aws-sdk|com\\.amazonaws|software\\.amazon\\.awssdk|\\bAWSSDK\\b|using Amazon\\."
   "@azure/|azure\\.identity|azure\\.storage|azure-sdk-for-go|using Azure\\.|Microsoft\\.Azure\\."
   "@google-cloud/|google\\.cloud\\.|cloud\\.google\\.com/go"
@@ -86,17 +97,25 @@ echo "# root: $ROOT"
 echo
 
 found_any=0
+total=0
+groups=0
+declare -a RESULTS=()
+declare -a COUNTS=()
 for i in "${!LABELS[@]}"; do
   label="${LABELS[$i]}"
   pat="${PATTERNS[$i]}"
 
-  out="$(rg -in --no-heading --color=never "${EXCLUDES[@]}" -e "$pat" -- "$ROOT")"
+  out="$(rg -in --no-heading --color=never --max-columns 200 --max-columns-preview \
+        "${EXCLUDES[@]}" -e "$pat" -- "$ROOT")"
   rc=$?
 
   case "$rc" in
     0)
       found_any=1
-      printf '== %s ==\n%s\n\n' "$label" "$out"
+      RESULTS[$i]="$out"
+      COUNTS[$i]="$(printf '%s\n' "$out" | grep -c '')"
+      total=$((total + COUNTS[i]))
+      groups=$((groups + 1))
       ;;
     1)
       : # no matches for this vendor
@@ -106,6 +125,20 @@ for i in "${!LABELS[@]}"; do
       ;;
   esac
 done
+
+# Summary first, so a truncated read still shows what SHOULD have been reported.
+if [ "$found_any" -eq 1 ]; then
+  echo "== HIT SUMMARY =="
+  for i in "${!LABELS[@]}"; do
+    [ -n "${COUNTS[$i]:-}" ] && printf '%6d  %s\n' "${COUNTS[$i]}" "${LABELS[$i]}"
+  done
+  printf '%6d  TOTAL hits across %d vendor groups\n' "$total" "$groups"
+  echo "# If the detail below is shorter than these counts, output was truncated."
+  echo
+  for i in "${!LABELS[@]}"; do
+    [ -n "${RESULTS[$i]:-}" ] && printf '== %s ==\n%s\n\n' "${LABELS[$i]}" "${RESULTS[$i]}"
+  done
+fi
 
 if [ "$found_any" -eq 0 ]; then
   echo "No proprietary vendor SDK usage matched. Repo may be clean; still emit the report."

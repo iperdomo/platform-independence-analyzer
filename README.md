@@ -78,9 +78,15 @@ follow-up.
 
 ## Requirements
 
-- [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) must be installed and
-  available on `PATH`. The skill uses `rg` to locate vendor SDK call sites
-  across the repository; without it the audit step will fail.
+- [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) **must** be installed
+  and available on `PATH`. The skill uses `rg` to locate vendor SDK call sites
+  across the repository, and the bundled `scripts/scan.sh` requires it.
+
+  Without `rg` the audit does not run. The scanner exits 127 and the skill stops
+  and asks you to install it rather than falling back to a different search
+  path - a vendor-lock-in audit is only as trustworthy as the completeness of
+  its scan, and silently swapping the search engine underneath it would make
+  results non-reproducible.
 
   Install on common systems:
 
@@ -130,6 +136,7 @@ layout should look like:
   README.md
   LICENSE.md
   references/
+    classification-rules.md
     dependency-patterns.md
     abstraction-examples.md
   scripts/

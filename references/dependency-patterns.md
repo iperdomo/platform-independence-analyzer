@@ -139,7 +139,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig); // classified by WHERE this runs
 ```
 
-Classify such a site by the file's role (Step 4): a call like
+Classify such a site by the file's role (classification-rules R2): a call like
 `initializeApp(...)` in a bootstrap/composition root is Acceptable; the same
 call scattered through domain code is the violation — because of the direct
 SDK use in domain code, not because the config mentions a vendor.
@@ -156,8 +156,8 @@ Vendor-lock-in shapes to flag (in scope for this skill):
 
 Out of scope (do NOT flag — these are architectural-quality concerns, not
 lock-in): general tight coupling, missing interfaces around open-source
-libraries, or config that merely names a vendor. See the SKILL.md scope
-section.
+libraries, or config that merely names a vendor. See classification-rules R1
+for the full scope boundary.
 
 ## Detection Keywords
 
@@ -192,7 +192,7 @@ section.
     `langchain_anthropic`, `@langchain/openai`, `@langchain/anthropic`,
     `@ai-sdk/openai`, `@ai-sdk/anthropic`, `llama_index.llms.*`, `ChatOpenAI`,
     `ChatAnthropic`, `ChatGoogleGenerativeAI`, `AzureChatOpenAI`, `litellm`.
-    See "LLM wrapper attribution" below for how to classify these.
+    See "LLM Wrapper Attribution" below and classification-rules R4.
 - Raw HTTP calls to vendor endpoints (no SDK involved, so every SDK pattern
   misses them): `api.stripe.com`, `api.openai.com`, `api.anthropic.com`,
   `api.twilio.com`, `api.sendgrid.com`, `*.googleapis.com`, `*.firebaseio.com`,
@@ -275,11 +275,11 @@ pattern is still too noisy.
 ```bash
 # Per-vendor patterns. Add the exclusions above as needed, e.g.:
 #   rg -in "\btwilio\b" --glob '!**/*.md' --glob '!**/vendor/**'
-rg -in "from ['\"]firebase|firebase-admin|firestore\\(|getFirestore|firebase\\.google\\.com/go|com\\.google\\.firebase|\bFirebaseAdmin\b"
+rg -in "from ['\"]firebase|require\\(['\"]firebase|firebase-admin|firestore\\(|getFirestore|firebase\\.google\\.com/go|com\\.google\\.firebase|\bFirebaseAdmin\b"
 rg -in "@googlemaps|google\\.maps|googlemaps\\.Client|new google\\.|googlemaps\\.github\\.io/maps"
-rg -in "from ['\"]stripe['\"]|import Stripe|\\bstripe\\.[a-zA-Z]|stripe/stripe-go|using Stripe\b|\bStripeConfiguration\b"
-rg -in "\bMongoClient\b|\bmongoose\b|\bpymongo\b|com\\.mongodb|go\\.mongodb\\.org|mongo-driver|MongoDB\\.Driver"
-rg -in "\btwilio\b|@sendgrid|\bsendgrid\b"
+rg -in "from ['\"]stripe['\"]|require\\(['\"]stripe|import Stripe|\\bstripe\\.[a-zA-Z]|stripe/stripe-go|using Stripe\b|\bStripeConfiguration\b"
+rg -in "\bMongoClient\b|require\\(['\"](mongodb|mongoose)|\bmongoose\b|\bpymongo\b|com\\.mongodb|go\\.mongodb\\.org|mongo-driver|MongoDB\\.Driver"
+rg -in "\btwilio\b|require\\(['\"](twilio|@sendgrid)|@sendgrid|\bsendgrid\b"
 rg -in "aws-sdk|\bboto3\b|@aws-sdk|com\\.amazonaws|software\\.amazon\\.awssdk|\bAWSSDK\b|using Amazon\\."
 rg -in "@azure/|azure\\.identity|azure\\.storage|azure-sdk-for-go|using Azure\\.|Microsoft\\.Azure\\."
 rg -in "@google-cloud/|google\\.cloud\\.|cloud\\.google\\.com/go"

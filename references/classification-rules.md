@@ -78,6 +78,17 @@ default to the more severe role (Violation) and let Tier 2 downgrade it.
 | Test using real SDK | Integration test against live vendor. | Low - flag |
 | Test mocking the SDK directly | Unit test mocks the vendor instead of an interface. | Medium - coupling leaks into tests |
 
+**React Native / mobile layouts.** RN apps rarely use `domain/` or `usecases/`.
+Read the equivalents: `screens/`, `components/`, `hooks/`, `navigation/`,
+`app/` (Expo Router) are the domain layer - a `@react-native-firebase` import
+there is a Violation. `src/services/`, `api/`, `data/`, `repositories/`, or
+`lib/<vendor>*.ts` get the usual adapter treatment. Two mobile-only roles:
+
+| Role | Heuristic | Treat as |
+|---|---|---|
+| Native wiring | `ios/Podfile`, `ios/AppDelegate.*`, `android/app/build.gradle`, `android/**/MainApplication.*`, `app.json` / `app.config.*`, `GoogleService-Info.plist`, `google-services.json`. Declares or initializes the SDK at app startup. | Bootstrap - Acceptable; use it for *coverage* (which vendor products are enabled), not severity |
+| Generated native artifact | `Pods/`, `*.pbxproj`, `.expo/`, `android/.gradle/`. | Not evidence - the scanner already excludes these; if one appears, ignore it |
+
 ### R2a. The adapter test (Tier 2 only)
 
 A file is a *real* adapter only if **both** conditions hold:
@@ -158,6 +169,25 @@ finding.
     unknowable, keep the finding at **Low or Medium with an ambiguity note**.
     Never reject on an unresolvable variable - the exception rewards a codebase
     that *shows* its endpoint is open, not one that hides it behind a variable.
+
+- **React Native, the Expo SDK, and open RN modules** - `react-native`,
+  `expo` and its OS-API wrappers (`expo-camera`, `expo-file-system`),
+  `react-navigation`, `react-native-reanimated`, `react-native-mmkv`,
+  `@react-native-async-storage/async-storage` are MIT. They are frameworks and
+  libraries, not services, so R1's open-source rule applies: not findings, even
+  imported straight into a screen. Only the proprietary *service* behind a
+  binding is (`@react-native-firebase/*` -> Firebase, `react-native-purchases`
+  -> RevenueCat). Exception worth naming rather than flagging silently: App
+  Store / Play billing (`react-native-iap`, `expo-in-app-purchases`) is real
+  platform lock-in that no abstraction removes while you ship through those
+  stores - report it, and say so.
+
+**Mobile bindings (`@react-native-firebase/*`, `react-native-purchases`, ...).**
+Same rule as the LLM wrappers below: the MIT binding is never the finding -
+attribute it to the service it reaches and name that service in the finding
+title. Native declarations (`Podfile`, `build.gradle`) are Bootstrap per R2; the
+severity comes from what the JS/Swift/Kotlin code does. See "Mobile Binding
+Attribution" in `dependency-patterns.md`.
 
 **LLM wrapper libraries (LangChain, LlamaIndex, Vercel AI SDK, LiteLLM).** These
 are MIT/Apache-licensed, so the wrapper itself is never the finding - attribute

@@ -7,9 +7,15 @@
 #
 # Requires: ripgrep (rg) only.
 #
-# Language coverage: JS/TS, Python, Java, Go, .NET/C#. Ruby, PHP, and Rust import
-# shapes are NOT covered - no output for those ecosystems means nothing was
-# searched for, not that the repo is clean. See SKILL.md Step 3.
+# Language coverage: JS/TS (incl. React Native), Python, Java/Kotlin, Go,
+# .NET/C#, Swift/Objective-C, and CocoaPods/Gradle manifests. Ruby, PHP, Rust,
+# and Dart/Flutter import shapes are NOT covered - no output for those
+# ecosystems means nothing was searched for, not that the repo is clean.
+# See SKILL.md Step 3.
+#
+# Every pattern runs under `rg -in`, so case carries no signal: `import firebase`
+# matches Swift `import FirebaseCore`, Python `import firebase_admin`, and JS
+# `import firebase from` alike. Do not write patterns that depend on case.
 # Usage:    scripts/scan.sh [ROOT_DIR]      (ROOT_DIR defaults to ".")
 #
 # Output shape: a per-vendor HIT SUMMARY first, then the grouped detail. Compare
@@ -26,7 +32,8 @@
 # ripgrep respects .gitignore by default, so node_modules/dist/build/.venv/
 # target/.next/coverage are already skipped when gitignored. The --glob
 # exclusions below cover cases rg will not skip on its own (committed vendor/
-# dirs, lock files, and Markdown docs that mention vendor names in prose).
+# and Pods/ dirs, generated Xcode/Expo artifacts, lock files, and Markdown docs
+# that mention vendor names in prose).
 
 set -uo pipefail
 
@@ -40,6 +47,9 @@ fi
 
 EXCLUDES=(
   --glob '!**/vendor/**'
+  --glob '!**/Pods/**'          # CocoaPods deps, committed in some iOS/RN repos
+  --glob '!**/*.pbxproj'        # generated Xcode project; mirrors the Podfile
+  --glob '!**/.expo/**'         # generated Expo cache
   --glob '!**/*.lock'
   --glob '!**/package-lock.json'
   --glob '!**/*.md'
@@ -51,6 +61,7 @@ EXCLUDES=(
 # word boundaries to cut substring/prose noise).
 LABELS=(
   "Firebase"
+  "React Native / mobile vendor SDKs (attribute to the underlying service - classification-rules R4)"
   "Google Maps"
   "Stripe"
   "MongoDB"
@@ -71,12 +82,13 @@ LABELS=(
   "Vendor API endpoints, raw HTTP (deliberately noisy - Tier 2 prunes)"
 )
 PATTERNS=(
-  "from ['\"]firebase|require\\(['\"]firebase|firebase-admin|firestore\\(|getFirestore|firebase\\.google\\.com/go|com\\.google\\.firebase|\\bFirebaseAdmin\\b"
-  "@googlemaps|google\\.maps|googlemaps\\.Client|new google\\.|googlemaps\\.github\\.io/maps"
-  "from ['\"]stripe['\"]|require\\(['\"]stripe|import Stripe|\\bstripe\\.[a-zA-Z]|stripe/stripe-go|using Stripe\\b|\\bStripeConfiguration\\b"
+  "@react-native-firebase|from ['\"]firebase|require\\(['\"]firebase|firebase[-_](admin|functions)|\\bimport firebase|@angular/fire|\\b(reactfire|vuefire)\\b|react-firebase-hooks|firestore\\(|getFirestore|\\bgetAuth\\(|onAuthStateChanged|createUserWithEmailAndPassword|signInWith(EmailAndPassword|Credential|CustomToken|Popup|Redirect|PhoneNumber)\\(|onSnapshot\\(|firebase\\.google\\.com/go|com\\.google\\.firebase|com\\.google\\.gms\\.google-services|GoogleService-Info|\\bFirebase(Admin|App|Core|Firestore|Auth|Storage|Messaging|Analytics|Crashlytics|RemoteConfig)\\b|pod ['\"]Firebase"
+  "@react-native-firebase/|react-native-purchases|\\brevenuecat\\b|react-native-onesignal|\\bonesignal\\b|react-native-google-mobile-ads|react-native-fbsdk|@react-native-google-signin|@stripe/stripe-react-native|react-native-maps|@sentry/react-native|@bugsnag/react-native|react-native-branch|\\bappsflyer\\b|react-native-adjust|@intercom/intercom-react-native|react-native-zendesk|react-native-code-push|\\bappcenter-|react-native-iap|expo-in-app-purchases|@segment/analytics-react-native|@amplitude/analytics-react-native|mixpanel-react-native|posthog-react-native|@react-native-community/push-notification-ios"
+  "@googlemaps|google\\.maps|googlemaps\\.Client|new google\\.|googlemaps\\.github\\.io/maps|\\bimport GoogleMaps\\b|pod ['\"]GoogleMaps|com\\.google\\.android\\.gms\\.maps"
+  "from ['\"]stripe['\"]|require\\(['\"]stripe|import Stripe|\\bstripe\\.[a-zA-Z]|stripe/stripe-go|using Stripe\\b|\\bStripeConfiguration\\b|com\\.stripe\\.android"
   "\\bMongoClient\\b|require\\(['\"](mongodb|mongoose)|\\bmongoose\\b|\\bpymongo\\b|com\\.mongodb|go\\.mongodb\\.org|mongo-driver|MongoDB\\.Driver"
   "\\btwilio\\b|require\\(['\"](twilio|@sendgrid)|@sendgrid|\\bsendgrid\\b"
-  "aws-sdk|\\bboto3\\b|@aws-sdk|com\\.amazonaws|software\\.amazon\\.awssdk|\\bAWSSDK\\b|using Amazon\\."
+  "aws-sdk|\\bboto3\\b|@aws-sdk|aws-amplify|@aws-amplify/|com\\.amazonaws|software\\.amazon\\.awssdk|\\bAWSSDK\\b|using Amazon\\."
   "@azure/|azure\\.identity|azure\\.storage|azure-sdk-for-go|using Azure\\.|Microsoft\\.Azure\\."
   "@google-cloud/|google\\.cloud\\.|cloud\\.google\\.com/go"
   "algoliasearch|@algolia/"

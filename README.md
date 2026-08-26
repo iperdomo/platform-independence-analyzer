@@ -15,7 +15,8 @@ classifies its severity, and recommends a concrete abstraction.
 - Tests that mock a vendor SDK directly rather than an abstraction.
 - Declared dependencies in manifests (`package.json`, `pyproject.toml`,
   `requirements.txt`, `pom.xml`, `build.gradle`, `go.mod`, `Gemfile`,
-  `composer.json`, `Cargo.toml`) that point at proprietary services.
+  `composer.json`, `Cargo.toml`, `ios/Podfile`) that point at proprietary
+  services.
 - Proprietary LLM/AI SaaS APIs (OpenAI, Anthropic, Gemini, Cohere, Mistral)
   used directly from business code. An LLM SDK pointed at a self-hostable,
   OpenAI-compatible endpoint via `base_url` (vLLM, Ollama, LiteLLM, LocalAI,
@@ -28,11 +29,22 @@ classifies its severity, and recommends a concrete abstraction.
 - LLM wrapper SDKs (LangChain, LlamaIndex, Vercel AI SDK, LiteLLM), where the
   vendor SDK is a transitive dependency. The wrapper is not the finding; the
   model API behind it is.
+- React Native / mobile binding modules (`@react-native-firebase/*`,
+  `react-native-purchases`, `react-native-onesignal`,
+  `@stripe/stripe-react-native`, `react-native-branch`, ...), plus the native
+  half an RN audit usually misses: `pod 'Firebase/...'` in the Podfile,
+  `com.google.gms.google-services` in Gradle, `import FirebaseCore` in Swift.
+  Same rule as the LLM wrappers - the MIT binding is not the finding, the
+  service behind it is (Firebase, RevenueCat, OneSignal). React Native itself
+  and the Expo SDK are open source and never flagged.
 
-Pattern coverage is JavaScript/TypeScript, Python, Java, Go, and .NET/C#. Ruby,
-PHP, and Rust manifests are still inventoried and judged, but their import
-shapes are not pattern-matched - the audit greps for those vendor names
-explicitly instead of assuming a silent scan means a clean repo.
+Pattern coverage is JavaScript/TypeScript (including React Native), Python,
+Java/Kotlin, Go, .NET/C#, Swift/Objective-C, and CocoaPods/Gradle manifests.
+Ruby, PHP, Rust, and Dart/Flutter manifests are still inventoried and judged,
+but their import shapes are not pattern-matched - the audit greps for those
+vendor names explicitly instead of assuming a silent scan means a clean repo.
+Expo/EAS hosted services (EAS Build/Update/Submit, Expo push) are the other
+deliberate gap and get the same explicit treatment.
 
 OSI-approved open-source dependencies (PostgreSQL, MySQL, SQLite, Redis,
 Valkey, Cassandra, etc.) and open protocols (HTTP, SMTP, OAuth, gRPC, S3 API)

@@ -75,16 +75,54 @@ using FirebaseAdmin;
 using Company.Application.Ports;   // IPaymentGateway, injected via DI
 ```
 
-### Ruby / PHP / Rust — not pattern-covered
+### React Native / mobile
+
+A React Native app is three codebases in one directory, and the JS half hides
+the other two. `@react-native-firebase/*` shares no substring with `firebase/app`,
+and the native projects declare the same vendors again in CocoaPods and Gradle —
+so a repo can look Firebase-free in `src/` while `ios/Podfile` and
+`android/app/build.gradle` wire it in.
+
+```typescript
+// Direct usage - VIOLATION (a Firebase finding, not a "react-native" finding)
+import firestore from '@react-native-firebase/firestore';
+import Purchases from 'react-native-purchases';   // RevenueCat
+await firestore().collection('users').doc(id).get();
+
+// Abstracted - GOOD
+import { userRepository } from '../data/user.repository';
+```
+
+```swift
+// ios/AppDelegate.swift - VIOLATION when domain code follows suit
+import FirebaseCore
+FirebaseApp.configure()
+```
+
+```ruby
+# ios/Podfile and android/app/build.gradle - the native declarations
+pod 'Firebase/Analytics'
+pod 'GoogleMaps'
+# apply plugin: 'com.google.gms.google-services'
+```
+
+React Native itself, the Expo SDK, and open modules like `react-native-mmkv` or
+`@react-native-async-storage/async-storage` are MIT — never findings on their
+own. See "Mobile Binding Attribution" below.
+
+### Ruby / PHP / Rust / Dart — not pattern-covered
 
 `scripts/scan.sh` has no patterns for these ecosystems. Their manifests
-(`Gemfile`, `composer.json`, `Cargo.toml`) are still read in Step 1 and judged
-in Step 2, so the vendor names are known — Step 3 must grep for them explicitly
-rather than trusting the scanner's silence. Typical shapes to grep for:
+(`Gemfile`, `composer.json`, `Cargo.toml`, `pubspec.yaml`) are still read in
+Step 1 and judged in Step 2, so the vendor names are known — Step 3 must grep
+for them explicitly rather than trusting the scanner's silence. Typical shapes
+to grep for:
 
 - Ruby: `Stripe::`, `Twilio::REST`, `Mongoid`, `Google::Cloud`, `require "stripe"`
 - PHP: `use Stripe\`, `use Twilio\`, `MongoDB\Client`, `Google\Cloud\`
 - Rust: `stripe_rust`, `mongodb::`, `aws_sdk_`, `google_cloud_`
+- Dart/Flutter: `package:firebase_core`, `package:cloud_firestore`,
+  `package:firebase_auth`, `package:google_maps_flutter`, `package:stripe_*`
 
 ## API Call Patterns
 
@@ -162,7 +200,11 @@ for the full scope boundary.
 ## Detection Keywords
 
 ### High-Risk Keywords
-- `firebase`, `firestore`, `firebase-admin`
+- `firebase`, `firestore`, `firebase-admin`, `firebase_admin`,
+  `firebase-functions`, `@react-native-firebase/*`, `@angular/fire`,
+  `reactfire`, `vuefire`, `react-firebase-hooks`, `FirebaseCore` /
+  `FirebaseFirestore` / `FirebaseAuth` (Swift), `pod 'Firebase/...'`,
+  `com.google.gms.google-services` (Gradle), `GoogleService-Info` (iOS plist)
 - `googleapis`, `google.maps`, `@googlemaps`
 - `stripe`, `stripe.com`
 - `twilio`, `sendgrid`, `@sendgrid`
@@ -177,6 +219,23 @@ for the full scope boundary.
 - `pusher`, `pubnub`, `ably`
 - `mapbox`, `here-`, `@here/`
 - `intercom`, `zendesk`, `salesforce`, `@salesforce/`
+- React Native / mobile bindings (the module is the wrapper — name the service
+  it binds to; see "Mobile Binding Attribution" below):
+  - `@react-native-firebase/*` → Firebase
+  - `react-native-purchases` → RevenueCat; `react-native-iap`,
+    `expo-in-app-purchases` → App Store / Play Billing
+  - `react-native-onesignal` → OneSignal; `@react-native-community/push-notification-ios` → APNs
+  - `react-native-google-mobile-ads` → Google AdMob; `react-native-fbsdk-next` → Meta
+  - `@react-native-google-signin/google-signin` → Google Identity
+  - `@stripe/stripe-react-native` → Stripe; `react-native-maps` → Google/Apple Maps
+  - `@sentry/react-native` → Sentry; `@bugsnag/react-native` → Bugsnag
+  - `react-native-branch`, `appsflyer-react-native-plugin`, `react-native-adjust`
+    → attribution SaaS (Branch, AppsFlyer, Adjust)
+  - `@intercom/intercom-react-native`, `react-native-zendesk` → Intercom, Zendesk
+  - `react-native-code-push`, `appcenter-*` → Microsoft App Center
+  - `@segment/analytics-react-native`, `@amplitude/analytics-react-native`,
+    `mixpanel-react-native`, `posthog-react-native` → the analytics vendor
+  - `aws-amplify`, `@aws-amplify/*` → AWS (matches neither `aws-sdk` nor `@aws-sdk`)
 - LLM/AI SaaS APIs (proprietary services behind permissively licensed SDKs —
   the service, not the client license, creates the lock-in):
   - `openai`, `OpenAI`, `AzureOpenAI` (see the base_url note under acceptable patterns)
@@ -223,6 +282,42 @@ calls:
 Either way the wrapper import is worth surfacing in Tier 1 — decide the role in
 Tier 2, and name the underlying vendor in the finding title.
 
+## Mobile Binding Attribution
+
+React Native, the Expo SDK, and most RN community modules are MIT-licensed, so
+the same rule the LLM wrappers get applies here: **the binding is never the
+finding** — attribute it to the proprietary service it reaches.
+`@react-native-firebase/firestore` in a screen is a *Firebase* finding;
+`react-native-purchases` is a *RevenueCat* finding; `@stripe/stripe-react-native`
+is a *Stripe* finding. Say the service in the finding title, not the npm name.
+
+Never findings on their own: `react-native` itself, `expo` / the Expo SDK
+modules that wrap OS APIs (`expo-camera`, `expo-file-system`),
+`@react-native-async-storage/async-storage`, `react-native-mmkv`,
+`react-navigation`, `react-native-reanimated`. These are open source and
+self-hostable-by-definition — flagging them is the mobile version of flagging
+`react`, which R1 forbids.
+
+Two mobile-specific judgment calls, both Tier 2:
+
+1. **The scan lists a module under two groups on purpose.**
+   `@react-native-firebase/auth` hits both the Firebase group and the mobile
+   group; that is one finding naming Firebase, not two.
+2. **Native declarations are wiring, not usage.** A `pod 'Firebase/Analytics'`
+   or `com.google.gms.google-services` line proves the vendor is installed and
+   tells you which native services are enabled, but `ios/Podfile` and
+   `android/app/build.gradle` are the mobile composition root — classify them as
+   Bootstrap (R2) and hang the severity on what the JS/Swift/Kotlin *code* does.
+   Their value is coverage: they reveal Firebase products (Crashlytics,
+   Messaging, Remote Config) that the JS bundle never imports.
+
+**Expo/EAS hosted services have no scan pattern.** EAS Build, EAS Submit, EAS
+Update (`expo-updates`), and Expo's push service (`expo-notifications`,
+`expo-server-sdk`) are proprietary hosted services on top of an MIT SDK, and
+`scripts/scan.sh` does not search for them. Their absence from the scan output
+is untested, not clean — if `eas.json` or `expo-updates` shows up in Step 1,
+judge it in Step 2's residual pass and grep for it explicitly in Step 3.
+
 ## Commonly Missed Proprietary Dependencies
 
 **This is a seed list, not an allowlist.** It exists to make SKILL.md Step 2's
@@ -248,6 +343,11 @@ relicensing is reliably stale. Verify before overriding a finding.
 | `@vercel/kv`, `@vercel/blob`, `@vercel/postgres`, `@netlify/*` | Vercel / Netlify platform primitives | Proprietary platform bindings — the wire protocol may be open (Postgres) but the binding is not portable. Finding. |
 | `terraform` tooling, `cdktf` | HashiCorp Terraform | BUSL-1.1 since 2023, not OSI-approved. OpenTofu is the MPL-2.0 fork. Finding. |
 | `confluent-kafka`, `@confluentinc/*` | Confluent Platform | Confluent Community License is not OSI-approved. Apache Kafka itself is Apache-2.0 — the finding is Confluent-specific components (Schema Registry, ksqlDB, Confluent Cloud), not Kafka. |
+| `react-native-purchases`, `purchases-*` | RevenueCat subscriptions | SDKs are MIT; the billing/entitlement backend is a proprietary hosted service with no self-host path. Finding — and note that it also mediates the App Store / Play Billing lock-in underneath. |
+| `react-native-onesignal`, `onesignal-*` | OneSignal push/messaging | Proprietary SaaS. Finding. The underlying transports (APNs, FCM) are platform-proprietary regardless of which push vendor sits on top. |
+| `react-native-branch`, `appsflyer-react-native-plugin`, `react-native-adjust` | Branch / AppsFlyer / Adjust attribution | Proprietary attribution SaaS, deeply coupled to deep-link and install-referrer flows. Finding. |
+| `react-native-code-push`, `appcenter-*` | Microsoft App Center / CodePush | Proprietary; App Center was retired in March 2025, so an existing dependency is also dead weight. Migration targets are EAS Update (proprietary) or a self-hosted OTA server. Finding. |
+| `react-native-iap`, `expo-in-app-purchases` | App Store / Google Play billing | The library is MIT; the billing rails are the platform's and cannot be swapped while shipping through those stores. Flag as platform lock-in with the caveat that it is not avoidable by architecture alone — an adapter still isolates the blast radius. |
 | `@planetscale/database`, `@neondatabase/serverless`, `@upstash/*` | Serverless DB platforms | Open protocol (MySQL/Postgres/Redis) reached through a proprietary platform-specific driver. Flag the driver coupling, note that the data layer itself is portable. |
 
 ### Ripgrep One-Liners
@@ -266,6 +366,10 @@ ripgrep will not skip on its own:
   contain vendor package names and produce noise.
 - `--glob '!**/*.md'` — exclude docs/READMEs from vendor sweeps; they mention
   vendor names in prose, not in code.
+- `--glob '!**/Pods/**'` `--glob '!**/*.pbxproj'` `--glob '!**/.expo/**'` — in
+  iOS/React Native repos, CocoaPods dependencies are sometimes committed, and
+  the Xcode project file and Expo cache are generated artifacts that restate
+  every pod name. The Podfile and `build.gradle` are the sources of truth.
 
 Patterns use `-i` (case-insensitive, so `Twilio`/`SENDGRID` match) and word
 boundaries (`\b...\b`) where a bare vendor name would otherwise match
@@ -273,34 +377,55 @@ substrings and prose. Restrict to source globs (e.g. `--glob '*.ts'`) when a
 pattern is still too noisy.
 
 ```bash
-# Per-vendor patterns. Add the exclusions above as needed, e.g.:
+# One line per vendor group, in scripts/scan.sh order. The pattern strings are
+# copied verbatim from the script, so a script-less run is comparable to a
+# scripted one. Add the exclusions above as needed, e.g.:
 #   rg -in "\btwilio\b" --glob '!**/*.md' --glob '!**/vendor/**'
-rg -in "from ['\"]firebase|require\\(['\"]firebase|firebase-admin|firestore\\(|getFirestore|firebase\\.google\\.com/go|com\\.google\\.firebase|\bFirebaseAdmin\b"
-rg -in "@googlemaps|google\\.maps|googlemaps\\.Client|new google\\.|googlemaps\\.github\\.io/maps"
-rg -in "from ['\"]stripe['\"]|require\\(['\"]stripe|import Stripe|\\bstripe\\.[a-zA-Z]|stripe/stripe-go|using Stripe\b|\bStripeConfiguration\b"
-rg -in "\bMongoClient\b|require\\(['\"](mongodb|mongoose)|\bmongoose\b|\bpymongo\b|com\\.mongodb|go\\.mongodb\\.org|mongo-driver|MongoDB\\.Driver"
-rg -in "\btwilio\b|require\\(['\"](twilio|@sendgrid)|@sendgrid|\bsendgrid\b"
-rg -in "aws-sdk|\bboto3\b|@aws-sdk|com\\.amazonaws|software\\.amazon\\.awssdk|\bAWSSDK\b|using Amazon\\."
+# Firebase
+rg -in "@react-native-firebase|from ['\"]firebase|require\\(['\"]firebase|firebase[-_](admin|functions)|\\bimport firebase|@angular/fire|\\b(reactfire|vuefire)\\b|react-firebase-hooks|firestore\\(|getFirestore|\\bgetAuth\\(|onAuthStateChanged|createUserWithEmailAndPassword|signInWith(EmailAndPassword|Credential|CustomToken|Popup|Redirect|PhoneNumber)\\(|onSnapshot\\(|firebase\\.google\\.com/go|com\\.google\\.firebase|com\\.google\\.gms\\.google-services|GoogleService-Info|\\bFirebase(Admin|App|Core|Firestore|Auth|Storage|Messaging|Analytics|Crashlytics|RemoteConfig)\\b|pod ['\"]Firebase"
+# React Native / mobile vendor SDKs (attribute to the underlying service - classification-rules R4)
+rg -in "@react-native-firebase/|react-native-purchases|\\brevenuecat\\b|react-native-onesignal|\\bonesignal\\b|react-native-google-mobile-ads|react-native-fbsdk|@react-native-google-signin|@stripe/stripe-react-native|react-native-maps|@sentry/react-native|@bugsnag/react-native|react-native-branch|\\bappsflyer\\b|react-native-adjust|@intercom/intercom-react-native|react-native-zendesk|react-native-code-push|\\bappcenter-|react-native-iap|expo-in-app-purchases|@segment/analytics-react-native|@amplitude/analytics-react-native|mixpanel-react-native|posthog-react-native|@react-native-community/push-notification-ios"
+# Google Maps
+rg -in "@googlemaps|google\\.maps|googlemaps\\.Client|new google\\.|googlemaps\\.github\\.io/maps|\\bimport GoogleMaps\\b|pod ['\"]GoogleMaps|com\\.google\\.android\\.gms\\.maps"
+# Stripe
+rg -in "from ['\"]stripe['\"]|require\\(['\"]stripe|import Stripe|\\bstripe\\.[a-zA-Z]|stripe/stripe-go|using Stripe\\b|\\bStripeConfiguration\\b|com\\.stripe\\.android"
+# MongoDB
+rg -in "\\bMongoClient\\b|require\\(['\"](mongodb|mongoose)|\\bmongoose\\b|\\bpymongo\\b|com\\.mongodb|go\\.mongodb\\.org|mongo-driver|MongoDB\\.Driver"
+# Twilio / SendGrid
+rg -in "\\btwilio\\b|require\\(['\"](twilio|@sendgrid)|@sendgrid|\\bsendgrid\\b"
+# AWS (non-S3 - filter S3-only per classification-rules R4)
+rg -in "aws-sdk|\\bboto3\\b|@aws-sdk|aws-amplify|@aws-amplify/|com\\.amazonaws|software\\.amazon\\.awssdk|\\bAWSSDK\\b|using Amazon\\."
+# Azure
 rg -in "@azure/|azure\\.identity|azure\\.storage|azure-sdk-for-go|using Azure\\.|Microsoft\\.Azure\\."
+# Google Cloud
 rg -in "@google-cloud/|google\\.cloud\\.|cloud\\.google\\.com/go"
+# Algolia
 rg -in "algoliasearch|@algolia/"
-rg -in "\bauth0\b|@auth0/|@okta/|okta-auth"
-rg -in "segment\\.io|\bmixpanel\b|\bamplitude\\.|\bposthog\b"
-rg -in "\bdatadog\b|dd-trace|\bnewrelic\b|@datadog/"
-# LLM/AI SaaS SDKs (mirror of scripts/scan.sh)
-rg -in "from ['\"]?openai\b|require\\(['\"]openai|\bimport openai\b|\bOpenAI\\(|\bAzureOpenAI\\(|\bopenai\\.[a-zA-Z]"
-rg -in "@anthropic-ai/|from ['\"]?anthropic\b|\bimport anthropic\b|\bAnthropic\\(|AnthropicBedrock|AnthropicVertex|\banthropic\\.[a-zA-Z]"
-rg -in "@google/generative-ai|@google/genai|google-genai|google[-.]generativeai|google import genai|\bGoogleGenerativeAI\b|\bgenai\\.[a-zA-Z]"
-rg -in "cohere-ai|from ['\"]?cohere\b|\bimport cohere\b|\bCohereClient\b|\bcohere\\.[a-zA-Z]"
-rg -in "@mistralai/|from ['\"]?mistralai\b|\bimport mistralai\b|\bMistralClient\b|\bMistral\\(|\bmistralai\\.[a-zA-Z]"
-# LLM wrapper SDKs - attribute the finding to the underlying vendor, not the wrapper
-rg -in "langchain[_.-](openai|anthropic|google_genai|google-genai|google_vertexai|cohere|mistralai|aws)|@langchain/(openai|anthropic|google-genai|google-vertexai|cohere|mistralai|aws)|@ai-sdk/(openai|anthropic|google|mistral|cohere|amazon-bedrock)|llama[_-]index\\.llms\\.[a-z]|\bChat(OpenAI|Anthropic|GoogleGenerativeAI|VertexAI|Bedrock|Cohere|MistralAI)\b|\bAzureChatOpenAI\b|\blitellm\b"
-# Raw HTTP calls to vendor endpoints - deliberately noisy, Tier 2 prunes
+# Auth0 / Okta
+rg -in "\\bauth0\\b|@auth0/|@okta/|okta-auth"
+# Analytics (Segment/Mixpanel/Amplitude/PostHog)
+rg -in "segment\\.io|\\bmixpanel\\b|\\bamplitude\\.|\\bposthog\\b"
+# Observability (Datadog/New Relic)
+rg -in "\\bdatadog\\b|dd-trace|\\bnewrelic\\b|@datadog/"
+# OpenAI (check for base_url override - classification-rules R4/R5)
+rg -in "from ['\"]?openai\\b|require\\(['\"]openai|\\bimport openai\\b|\\bOpenAI\\(|\\bAzureOpenAI\\(|\\bopenai\\.[a-zA-Z]"
+# Anthropic
+rg -in "@anthropic-ai/|from ['\"]?anthropic\\b|\\bimport anthropic\\b|\\bAnthropic\\(|AnthropicBedrock|AnthropicVertex|\\banthropic\\.[a-zA-Z]"
+# Google Gemini
+rg -in "@google/generative-ai|@google/genai|google-genai|google[-.]generativeai|google import genai|\\bGoogleGenerativeAI\\b|\\bgenai\\.[a-zA-Z]"
+# Cohere
+rg -in "cohere-ai|from ['\"]?cohere\\b|\\bimport cohere\\b|\\bCohereClient\\b|\\bcohere\\.[a-zA-Z]"
+# Mistral
+rg -in "@mistralai/|from ['\"]?mistralai\\b|\\bimport mistralai\\b|\\bMistralClient\\b|\\bMistral\\(|\\bmistralai\\.[a-zA-Z]"
+# LLM wrapper SDKs (attribute to the underlying vendor - classification-rules R4)
+rg -in "langchain[_.-](openai|anthropic|google_genai|google-genai|google_vertexai|cohere|mistralai|aws)|@langchain/(openai|anthropic|google-genai|google-vertexai|cohere|mistralai|aws)|@ai-sdk/(openai|anthropic|google|mistral|cohere|amazon-bedrock)|llama[_-]index\\.llms\\.[a-z]|\\bChat(OpenAI|Anthropic|GoogleGenerativeAI|VertexAI|Bedrock|Cohere|MistralAI)\\b|\\bAzureChatOpenAI\\b|\\blitellm\\b"
+# Vendor API endpoints, raw HTTP (deliberately noisy - Tier 2 prunes)
 rg -in "api\\.(stripe|openai|anthropic|twilio|sendgrid|cohere|mistral|mixpanel|amplitude|segment|contentful|pinecone|notion|airtable)\\.(com|io|ai)|api\\.datadoghq\\.com|\\.googleapis\\.com|\\.firebaseio\\.com|hooks\\.slack\\.com|\\.openai\\.azure\\.com|\\.algolia(net)?\\.(com|net)|ingest\\.sentry\\.io|\\.snowflakecomputing\\.com|app\\.launchdarkly\\.com"
 ```
 
-Both sweeps overlap the SDK sweeps on purpose — `api.stripe.com` matches the
-Stripe pattern too, and `llama_index.llms.openai` matches the OpenAI one. A file
+Three groups overlap the direct-SDK sweeps on purpose — `api.stripe.com` matches
+the Stripe pattern too, `llama_index.llms.openai` matches the OpenAI one, and
+`@react-native-firebase/auth` matches both the mobile group and Firebase. A file
 appearing under several vendor groups is expected; it still yields **one**
 finding, naming every vendor involved (SKILL.md Step 3).
 

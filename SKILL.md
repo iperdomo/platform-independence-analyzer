@@ -1,6 +1,6 @@
 ---
 name: platform-independence-analyzer
-description: Audit a code repository for direct dependencies on closed-source or proprietary services (Firebase, Google Maps, Stripe, Twilio, SendGrid, MongoDB, LLM/AI APIs like OpenAI, Anthropic, Gemini, Cohere, Mistral, vendor SDKs, cloud-specific functions, etc.) that lack an abstraction layer. Use when the user asks to evaluate platform independence, vendor lock-in, proprietary-dependency coupling, swappability of services, missing adapter/repository/port layers, or to produce a PLATFORM-DEPENDENCY-ANALYSIS.md report. Triggers on phrases such as "platform independence", "vendor lock-in", "proprietary dependency audit", "check for closed-source dependencies", "are we coupled to <vendor>", "can we swap <vendor>", "are we locked into OpenAI", "LLM/AI vendor lock-in".
+description: Audit a code repository for direct dependencies on closed-source or proprietary services (Firebase, Google Maps, Stripe, Twilio, SendGrid, MongoDB, LLM/AI APIs like OpenAI, Anthropic, Gemini, Cohere, Mistral, vendor SDKs, cloud-specific functions, etc.) that lack an abstraction layer. Use when the user asks to evaluate platform independence, vendor lock-in, proprietary-dependency coupling, swappability of services, missing adapter/repository/port layers, or to produce a PLATFORM-DEPENDENCY-ANALYSIS.md report. Covers React Native / mobile repos, where proprietary services are reached through binding modules (@react-native-firebase, react-native-purchases, react-native-onesignal) and declared again in Podfile/build.gradle. Triggers on phrases such as "platform independence", "vendor lock-in", "proprietary dependency audit", "check for closed-source dependencies", "are we coupled to <vendor>", "can we swap <vendor>", "are we locked into OpenAI", "are we locked into Firebase", "LLM/AI vendor lock-in", "mobile vendor lock-in".
 ---
 
 # Platform Independence Analyzer
@@ -52,11 +52,14 @@ Execute the Tier 1 steps in order. Within a step, batch independent tool calls i
 
 - Project root defaults to the current working directory unless the user says otherwise.
 - Identify languages by reading manifest files in parallel: `package.json`, `pyproject.toml`, `requirements.txt`,
-  `pom.xml`, `build.gradle`, `go.mod`, `Gemfile`, `composer.json`, `Cargo.toml`.
+  `pom.xml`, `build.gradle`, `go.mod`, `Gemfile`, `composer.json`, `Cargo.toml`. For mobile repos add `ios/Podfile`,
+  `android/app/build.gradle`, and `app.json` / `app.config.js` — a React Native app declares its vendors three times
+  (JS manifest, CocoaPods, Gradle) and the native two often name products the JS bundle never imports.
 - Note the architectural style if visible from the directory layout (layered, hexagonal/ports-and-adapters, clean, MVC).
   This determines what "domain" means for Step 4.
 - Always exclude these directories from searches: `node_modules`, `vendor`, `dist`, `build`, `target`, `.git`, `.venv`,
-  `__pycache__`, `coverage`, `.next`, `.cache`, generated code directories, and lock files.
+  `__pycache__`, `coverage`, `.next`, `.cache`, `Pods`, `.expo`, `ios/build`, `*.pbxproj`, generated code directories,
+  and lock files.
 
 ### Step 2 — Inventory declared proprietary dependencies
 
@@ -137,16 +140,24 @@ Two sweeps overlap the SDK sweeps deliberately, so expect duplicates and de-dupl
   pattern misses. It is the noisiest sweep by design (config files, comments, allowlists); Tier 2 prunes it.
 - **LLM wrapper SDKs** catch `langchain_openai`, `@ai-sdk/*`, `llama_index.llms.*`, `litellm` and friends, where the
   vendor SDK is a transitive dependency the direct vendor patterns never see.
+- **React Native / mobile vendor SDKs** catch binding modules (`@react-native-firebase/*`, `react-native-purchases`,
+  `react-native-onesignal`) whose package names share no substring with the SDK they wrap. Like the LLM wrappers, the
+  binding is never the finding — name the service behind it (Firebase, RevenueCat, OneSignal). A
+  `@react-native-firebase/auth` import lands in both this group and Firebase; that is still one finding.
 
 A file can therefore appear under several vendor groups (`api.stripe.com` hits both Stripe and the HTTP sweep). It still
 produces **one** finding, naming every vendor involved — never one finding per group.
 
-**Language coverage — do not read silence as cleanliness.** The patterns cover **JavaScript/TypeScript, Python, Java,
-Go, and .NET/C#**. Step 1 also reads `Gemfile`, `composer.json`, and `Cargo.toml`, but **no pattern covers Ruby, PHP, or
-Rust import shapes**. For those ecosystems the scanner returning nothing means nothing was *searched for*, not that
-nothing is there — grep explicitly for the vendor names Step 2 inventoried, using the language's own import syntax
-(`use Stripe\`, `Stripe::`, `mongodb::`, `aws_sdk_`, ...). `references/dependency-patterns.md` lists the common shapes
-per language. This is the same targeted sweep the Step 2 residual candidates need, so run them together.
+**Language coverage — do not read silence as cleanliness.** The patterns cover **JavaScript/TypeScript (including
+React Native), Python, Java/Kotlin, Go, .NET/C#, Swift/Objective-C, and CocoaPods/Gradle manifests**. Step 1 also reads
+`Gemfile`, `composer.json`, `Cargo.toml`, and `pubspec.yaml`, but **no pattern covers Ruby, PHP, Rust, or Dart/Flutter
+import shapes**. For those ecosystems the scanner returning nothing means nothing was *searched for*, not that nothing
+is there — grep explicitly for the vendor names Step 2 inventoried, using the language's own import syntax
+(`use Stripe\`, `Stripe::`, `mongodb::`, `aws_sdk_`, `package:firebase_core`, ...).
+`references/dependency-patterns.md` lists the common shapes per language. **Expo/EAS hosted services** (EAS
+Build/Update/Submit, `expo-updates`, `expo-notifications`) are the other deliberate gap — no pattern searches for them,
+so they need the same explicit grep. This is the same targeted sweep the Step 2 residual candidates need, so run them
+together.
 
 ### Step 4 — Assign a tentative role (name/path heuristics only)
 

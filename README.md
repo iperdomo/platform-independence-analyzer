@@ -19,7 +19,20 @@ classifies its severity, and recommends a concrete abstraction.
 - Proprietary LLM/AI SaaS APIs (OpenAI, Anthropic, Gemini, Cohere, Mistral)
   used directly from business code. An LLM SDK pointed at a self-hostable,
   OpenAI-compatible endpoint via `base_url` (vLLM, Ollama, LiteLLM, LocalAI,
-  TGI) is treated like the S3 case - reduced lock-in, not flagged.
+  TGI) is treated like the S3 case - reduced lock-in, not flagged - but only
+  when the endpoint is actually resolvable from the repo. A bare
+  `os.environ["LLM_BASE_URL"]` with no discoverable default stays a finding at
+  reduced severity, with the ambiguity noted.
+- Vendor APIs reached without an SDK at all - raw `fetch`/`httpx`/`requests`
+  calls to `api.stripe.com`, `api.openai.com`, `*.googleapis.com`, and friends.
+- LLM wrapper SDKs (LangChain, LlamaIndex, Vercel AI SDK, LiteLLM), where the
+  vendor SDK is a transitive dependency. The wrapper is not the finding; the
+  model API behind it is.
+
+Pattern coverage is JavaScript/TypeScript, Python, Java, Go, and .NET/C#. Ruby,
+PHP, and Rust manifests are still inventoried and judged, but their import
+shapes are not pattern-matched - the audit greps for those vendor names
+explicitly instead of assuming a silent scan means a clean repo.
 
 OSI-approved open-source dependencies (PostgreSQL, MySQL, SQLite, Redis,
 Valkey, Cassandra, etc.) and open protocols (HTTP, SMTP, OAuth, gRPC, S3 API)

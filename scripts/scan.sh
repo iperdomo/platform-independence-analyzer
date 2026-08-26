@@ -6,6 +6,10 @@
 # grepping.
 #
 # Requires: ripgrep (rg) only.
+#
+# Language coverage: JS/TS, Python, Java, Go, .NET/C#. Ruby, PHP, and Rust import
+# shapes are NOT covered - no output for those ecosystems means nothing was
+# searched for, not that the repo is clean. See SKILL.md Step 3.
 # Usage:    scripts/scan.sh [ROOT_DIR]      (ROOT_DIR defaults to ".")
 #
 # Exit codes: 0 = ran (with or without hits); 127 = ripgrep not installed.
@@ -52,16 +56,18 @@ LABELS=(
   "Google Gemini"
   "Cohere"
   "Mistral"
+  "LLM wrapper SDKs (attribute to the underlying vendor - see Step 6)"
+  "Vendor API endpoints, raw HTTP (deliberately noisy - Tier 2 prunes)"
 )
 PATTERNS=(
-  "from ['\"]firebase|firebase-admin|firestore\\(|getFirestore"
-  "@googlemaps|google\\.maps|googlemaps\\.Client|new google\\."
-  "from ['\"]stripe['\"]|import Stripe|\\bstripe\\.[a-zA-Z]"
-  "\\bMongoClient\\b|\\bmongoose\\b|\\bpymongo\\b|com\\.mongodb"
-  "\\btwilio\\b|@sendgrid|\\bsendgrid\\.[a-zA-Z]"
-  "aws-sdk|\\bboto3\\b|@aws-sdk"
-  "@azure/|azure\\.identity|azure\\.storage"
-  "@google-cloud/|google\\.cloud\\."
+  "from ['\"]firebase|firebase-admin|firestore\\(|getFirestore|firebase\\.google\\.com/go|com\\.google\\.firebase|\\bFirebaseAdmin\\b"
+  "@googlemaps|google\\.maps|googlemaps\\.Client|new google\\.|googlemaps\\.github\\.io/maps"
+  "from ['\"]stripe['\"]|import Stripe|\\bstripe\\.[a-zA-Z]|stripe/stripe-go|using Stripe\\b|\\bStripeConfiguration\\b"
+  "\\bMongoClient\\b|\\bmongoose\\b|\\bpymongo\\b|com\\.mongodb|go\\.mongodb\\.org|mongo-driver|MongoDB\\.Driver"
+  "\\btwilio\\b|@sendgrid|\\bsendgrid\\b"
+  "aws-sdk|\\bboto3\\b|@aws-sdk|com\\.amazonaws|software\\.amazon\\.awssdk|\\bAWSSDK\\b|using Amazon\\."
+  "@azure/|azure\\.identity|azure\\.storage|azure-sdk-for-go|using Azure\\.|Microsoft\\.Azure\\."
+  "@google-cloud/|google\\.cloud\\.|cloud\\.google\\.com/go"
   "algoliasearch|@algolia/"
   "\\bauth0\\b|@auth0/|@okta/|okta-auth"
   "segment\\.io|\\bmixpanel\\b|\\bamplitude\\.|\\bposthog\\b"
@@ -71,6 +77,8 @@ PATTERNS=(
   "@google/generative-ai|@google/genai|google-genai|google[-.]generativeai|google import genai|\\bGoogleGenerativeAI\\b|\\bgenai\\.[a-zA-Z]"
   "cohere-ai|from ['\"]?cohere\\b|\\bimport cohere\\b|\\bCohereClient\\b|\\bcohere\\.[a-zA-Z]"
   "@mistralai/|from ['\"]?mistralai\\b|\\bimport mistralai\\b|\\bMistralClient\\b|\\bMistral\\(|\\bmistralai\\.[a-zA-Z]"
+  "langchain[_.-](openai|anthropic|google_genai|google-genai|google_vertexai|cohere|mistralai|aws)|@langchain/(openai|anthropic|google-genai|google-vertexai|cohere|mistralai|aws)|@ai-sdk/(openai|anthropic|google|mistral|cohere|amazon-bedrock)|llama[_-]index\\.llms\\.[a-z]|\\bChat(OpenAI|Anthropic|GoogleGenerativeAI|VertexAI|Bedrock|Cohere|MistralAI)\\b|\\bAzureChatOpenAI\\b|\\blitellm\\b"
+  "api\\.(stripe|openai|anthropic|twilio|sendgrid|cohere|mistral|mixpanel|amplitude|segment|contentful|pinecone|notion|airtable)\\.(com|io|ai)|api\\.datadoghq\\.com|\\.googleapis\\.com|\\.firebaseio\\.com|hooks\\.slack\\.com|\\.openai\\.azure\\.com|\\.algolia(net)?\\.(com|net)|ingest\\.sentry\\.io|\\.snowflakecomputing\\.com|app\\.launchdarkly\\.com"
 )
 
 echo "# platform-independence scan"

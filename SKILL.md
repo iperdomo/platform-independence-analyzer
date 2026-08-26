@@ -65,9 +65,32 @@ Execute the Tier 1 steps in order. Within a step, batch independent tool calls i
 
 ### Step 2 — Inventory declared proprietary dependencies
 
-Read each manifest file and list every dependency matching a known proprietary service from
-`references/dependency-patterns.md`. This is the candidate list that drives Step 3. If a candidate is not declared in
-any manifest but appears in source (e.g. via direct HTTP), still include it.
+Read each manifest file and build the candidate list that drives Step 3. This runs in two parts; the second is not
+optional, because the pattern list is a closed allowlist and every list rots.
+
+**Part 1 — known matches.** List every dependency matching a known proprietary service from
+`references/dependency-patterns.md`.
+
+**Part 2 — residual judgment pass.** Every remaining manifest dependency — the ones no pattern matched — gets an
+explicit proprietary-or-open call. This is judgment, not pattern matching, and it is the only thing standing between the
+audit and a silent zero-finding report on a repo built entirely out of unlisted vendors:
+
+- Dismiss obvious OSI-licensed frameworks, utilities, and build tooling in bulk (`react`, `express`, `flask`,
+  `lodash`, `pytest`, `vite`, ...). Do not spend a line each on these.
+- For anything that names or wraps a *hosted service* — a database, search index, feature flag system, error tracker,
+  CMS, data warehouse, queue, vector store, LLM gateway — decide with the rules already in the scope section: **the
+  service's license matters, not the client library's**, and when a license is unclear, **treat it as proprietary and
+  flag it**. Many such clients are MIT-licensed wrappers around a non-OSI service (Elasticsearch under SSPL/ELv2,
+  Sentry under FSL, MongoDB under SSPL).
+- `references/dependency-patterns.md` carries a "Commonly missed proprietary dependencies" list. It is a *seed list to
+  make this pass cheap, not an allowlist* — a name's absence from it means nothing, so still judge the rest.
+
+Both parts feed Step 3. Also include any candidate not declared in a manifest but visible in source (e.g. a raw HTTP
+call to a vendor endpoint).
+
+Carry the residual-pass results forward explicitly: `scripts/scan.sh` has no pattern for them, so **Step 3 must run a
+targeted `rg` for each judgment-derived package name** or those dependencies produce no `file:line` evidence and vanish
+from the report.
 
 ### Step 3 — Locate usage sites
 
@@ -78,6 +101,18 @@ instead of freehand grepping:
 ```bash
 bash <ABSOLUTE_PATH_TO_SKILL_DIR>/scripts/scan.sh <repo-root>   # repo-root defaults to "."
 ```
+
+**Always: sweep the Step 2 residual candidates too.** The scanner only knows its built-in patterns, so every dependency
+flagged by Step 2's judgment pass needs its own grep — the import name, not the package name, when they differ
+(`@sentry/node` -> `@sentry/`, `snowflake-connector-python` -> `\bsnowflake\b`). The sweep is `-i`, so do not spell out
+case variants:
+
+```bash
+rg -in --glob '!**/vendor/**' --glob '!**/*.lock' --glob '!**/*.md' -e "<import-name-1>" -e "<import-name-2>" .
+```
+
+A residual candidate with no source hits is a declared-but-unused dependency: note it in the report's Acceptable
+Dependencies section rather than raising a finding with no `path:line` evidence.
 
 **Fallback: freehand ripgrep.** If the script is absent, run the patterns from `references/dependency-patterns.md` in
 parallel via Bash or the Grep tool. They are case-insensitive (`-i`) with word boundaries; ripgrep respects `.gitignore`,
@@ -90,6 +125,23 @@ so add `--glob` only for committed `vendor/` dirs, lock files, and `*.md` docs. 
 - OpenAI: `rg -in "from ['\"]?openai\b|\bimport openai\b|\bOpenAI\("` (then check for a `base_url` override in Step 6)
 
 Record every hit as `path:line` with the surrounding context, then group hits by file.
+
+Two sweeps overlap the SDK sweeps deliberately, so expect duplicates and de-duplicate when grouping:
+
+- **Raw HTTP endpoints** catch vendor calls made with `fetch`/`httpx`/`curl` and no SDK at all — the case every SDK
+  pattern misses. It is the noisiest sweep by design (config files, comments, allowlists); Tier 2 prunes it.
+- **LLM wrapper SDKs** catch `langchain_openai`, `@ai-sdk/*`, `llama_index.llms.*`, `litellm` and friends, where the
+  vendor SDK is a transitive dependency the direct vendor patterns never see.
+
+A file can therefore appear under several vendor groups (`api.stripe.com` hits both Stripe and the HTTP sweep). It still
+produces **one** finding, naming every vendor involved — never one finding per group.
+
+**Language coverage — do not read silence as cleanliness.** The patterns cover **JavaScript/TypeScript, Python, Java,
+Go, and .NET/C#**. Step 1 also reads `Gemfile`, `composer.json`, and `Cargo.toml`, but **no pattern covers Ruby, PHP, or
+Rust import shapes**. For those ecosystems the scanner returning nothing means nothing was *searched for*, not that
+nothing is there — grep explicitly for the vendor names Step 2 inventoried, using the language's own import syntax
+(`use Stripe\`, `Stripe::`, `mongodb::`, `aws_sdk_`, ...). `references/dependency-patterns.md` lists the common shapes
+per language. This is the same targeted sweep the Step 2 residual candidates need, so run them together.
 
 ### Step 4 — Assign a tentative role (name/path heuristics only)
 
@@ -124,6 +176,11 @@ levels:
 - **Medium**: an interface exists but leaks vendor types through its public surface (e.g. method returns `Stripe.PaymentIntent`), or unit tests mock the SDK directly.
 - **Low**: scripts, CLIs, migrations, or integration tests that import the SDK directly while production code is properly abstracted.
 
+**Ambiguity discount.** When a coupling is real but its *magnitude* depends on deployment config the repo does not
+settle — the indeterminate LLM `base_url` of Step 6 being the standard case — cap the severity at **Medium**, or **Low**
+when production code is otherwise abstracted, and state the unresolved question in the finding. Unresolved ambiguity
+lowers the level; it never removes the finding.
+
 ### Step 6 — Recognize acceptable patterns
 
 Do not flag any of the following:
@@ -143,7 +200,19 @@ Do not flag any of the following:
   - there is no `base_url` override (the SDK hits the vendor's default hosted API — a finding);
   - the `base_url` points at another proprietary SaaS (Azure OpenAI, Groq, Together, Perplexity) — still a finding, and
     re-attribute it to that vendor;
-  - the call uses a cloud-proprietary path such as `AnthropicBedrock` / `AnthropicVertex` — still a finding.
+  - the call uses a cloud-proprietary path such as `AnthropicBedrock` / `AnthropicVertex` — still a finding;
+  - **the endpoint is indeterminate** — a bare `os.environ["LLM_BASE_URL"]` with no default could be vLLM, Groq, or
+    the vendor's own API depending on deployment. Try to resolve it (Tier 2 step 4b lists where to look); if it stays
+    unknowable, keep the finding at **Low or Medium with an ambiguity note**. Never reject on an unresolvable variable
+    — the exception rewards a codebase that *shows* its endpoint is open, not one that hides it behind a variable.
+
+**LLM wrapper libraries (LangChain, LlamaIndex, Vercel AI SDK, LiteLLM).** These are MIT/Apache-licensed, so the wrapper
+itself is never the finding — attribute it to the proprietary model API it binds to (`from langchain_openai import
+ChatOpenAI` is an *OpenAI* finding). But a provider-agnostic wrapper can itself *be* the abstraction: code written
+against a generic chat-model type with the concrete provider chosen at composition time, or a LiteLLM call whose model
+string comes from config, is doing an adapter's job and lock-in is reduced. Code importing `ChatOpenAI` straight into a
+use case, or hardcoding a proprietary model string in domain code, is not. Tier 1 surfaces the import; Tier 2 decides
+which shape it is. See "LLM Wrapper Attribution" in `references/dependency-patterns.md`.
 
 When in doubt, flag and let the user decide; document the ambiguity in the finding.
 
@@ -157,6 +226,10 @@ edits it in place, so its structure must be stable:
   `Status: UNVERIFIED` line. Keep the `### [PDA-NNN] [Severity?] ...` heading and the `Status:` line on their own lines,
   format-stable, so the verifier can rewrite them with exact-string edits.
 - Cite every claim with `path:line`. Do not paraphrase code without showing it.
+- For findings that came from Step 2's **residual judgment pass** rather than a known pattern, state the license basis in
+  the `Problem:` sentence — which service the dependency binds to and under what license (e.g. "`@sentry/node` is a
+  client for Sentry's hosted service, licensed FSL, not OSI-approved"). Tier 2 then checks your reasoning instead of
+  re-deriving the license from its own training data, which is frozen and often stale.
 - **Do NOT write the executive-summary severity table yet.** Leave the placeholder note in the template. The table is
   computed LAST — after Tier 2 verification — because verdicts change the counts. Until Tier 2 runs, the draft's severities
   are tentative (`?`) and the summary stays a placeholder.
@@ -259,9 +332,17 @@ First, read these files to load the classification rules (do not skip):
 Then read the draft report: <ABSOLUTE_PATH_TO_DRAFT>
 
 For EACH finding (each `### [PDA-NNN] ...` block), run this procedure:
-  1. Open the flagged file at each cited `path:line`. Confirm the vendor SDK call actually
-     exists there. If the cited lines are a comment, a string, a doc, or otherwise not a real
-     SDK call, the claim is a false positive -> REJECTED.
+  1. Open the flagged file at each cited `path:line`. Confirm real vendor usage exists there.
+     Three shapes all count as real usage, do NOT reject a finding merely because it is not the
+     first one:
+       (a) a vendor SDK call or import;
+       (b) a request to a vendor HTTP endpoint with no SDK involved (`fetch`/`httpx`/`axios`/
+           `requests` against api.stripe.com, api.openai.com, *.googleapis.com, ...) — a URL in
+           a config constant or env default that is then used to build requests counts;
+       (c) an LLM wrapper import (`langchain_openai`, `@ai-sdk/*`, `llama_index.llms.*`,
+           `litellm`) that reaches a proprietary model API transitively.
+     If the cited lines are a comment, a doc, a test fixture string, or otherwise not real
+     usage, the claim is a false positive -> REJECTED.
   2. Adapter test (the check Tier 1 could not do): does the file (a) implement an interface or
      abstract class for that capability, AND (b) is it the ONLY place that vendor SDK is
      referenced for that capability? Run a repo-wide grep for the SDK import to settle (b). A
@@ -270,12 +351,38 @@ For EACH finding (each `### [PDA-NNN] ...` block), run this procedure:
   3. Caller analysis: grep for importers of the flagged module. Check whether vendor types leak
      upward through its public surface (return types, params). A leak downgrades an otherwise-
      clean abstraction to Medium.
-  4. LLM-SDK endpoint check (only for OpenAI/Anthropic/Gemini/Cohere/Mistral findings): look for a
-     `base_url`/`baseURL` (or Python `base_url`) override where the client is constructed. Per
-     Step 6: if it targets a self-hostable, open-weight OpenAI-compatible runtime (vLLM, Ollama,
-     LiteLLM, LocalAI, TGI), lock-in is reduced -> REJECT/ADJUST like AWS S3. If there is no
-     override, or it points at another proprietary SaaS (Azure OpenAI, Groq, Together, Perplexity)
-     or uses Bedrock/Vertex, it stays a finding (re-attribute to the actual vendor if different).
+  4. LLM findings only (OpenAI/Anthropic/Gemini/Cohere/Mistral, including ones reached through a
+     wrapper such as langchain_*, @ai-sdk/*, llama_index.llms.*, litellm):
+
+     4a. Wrapper attribution. The wrapper library is MIT/Apache and is never itself the finding —
+         re-title the finding after the proprietary model API it binds to. Then judge the shape:
+         code written against a provider-agnostic type with the concrete provider chosen at
+         composition time, or a litellm call whose model string comes from config, is acting AS
+         the abstraction -> ADJUST down (or [OK], like a real adapter). `ChatOpenAI` imported
+         straight into a use case, or a hardcoded proprietary model string in domain code, stays
+         a finding.
+
+     4b. Endpoint check. Look for a `base_url`/`baseURL` (or Python `base_url`) override where the
+         client is constructed. Per Step 6: if it targets a self-hostable, open-weight
+         OpenAI-compatible runtime (vLLM, Ollama, LiteLLM, LocalAI, TGI), lock-in is reduced ->
+         REJECT/ADJUST like AWS S3. If there is no override, or it points at another proprietary
+         SaaS (Azure OpenAI, Groq, Together, Perplexity) or uses Bedrock/Vertex, it stays a
+         finding (re-attribute to the actual vendor if different).
+
+         When the override reads from an env var, the endpoint is NOT knowable from that line —
+         you must chase the actual value before deciding. Look, stopping at the first hit:
+           (i)   a literal default in the call itself (`os.environ.get(..., "http://...")`,
+                 `process.env.X ?? "http://..."`);
+           (ii)  `.env.example`, `.env.sample`, `.env.defaults`, `.env.template` — a variable
+                 listed there with an EMPTY value resolves nothing, keep looking;
+           (iii) `docker-compose*.yml` (an ollama/vllm/litellm service next to the app is strong
+                 evidence), Helm `values.yaml`, k8s manifests, Terraform;
+           (iv)  config modules with a fallback constant, CI workflow env blocks, README or
+                 deployment docs.
+         If the value resolves, judge it as above. If it does NOT resolve, the verdict is
+         `ADJUSTED (endpoint indeterminate)` at Low or Medium with the ambiguity spelled out in
+         the Verification note — NOT `REJECTED`. An unresolvable variable is missing evidence,
+         not evidence of an open endpoint.
   5. Decide the verdict and severity per Steps 4-6, then edit the draft finding in place:
      - Rewrite the `Status:` line to exactly one of:
          Status: CONFIRMED
@@ -292,6 +399,10 @@ Rules of engagement:
 - Use exact-string edits; preserve every claim ID and the heading/`Status:` line structure.
 - When genuinely uncertain after analysis, keep the finding (CONFIRMED or ADJUSTED) and say so
   in the Verification note; do not reject on doubt.
+- Some findings cite a license basis in their `Problem:` line (e.g. "Sentry's server is FSL, not
+  OSI-approved"). Do NOT overturn those from memory — your training data on vendor relicensing is
+  frozen and frequently stale. The license table in dependency-patterns.md is the authority; if a
+  claim contradicts it, adjust, and if neither settles it, keep the finding with an ambiguity note.
 
 When done, return a plain-text list: one line per claim as `PDA-NNN: <VERDICT> — <one-clause reason>`.
 ```
@@ -328,7 +439,7 @@ returns, the main agent must:
 
 ## When to Read the References
 
-- Read `references/dependency-patterns.md` at the start of Step 3 to retrieve the full pattern list and detection keywords for the languages found in Step 1.
+- Read `references/dependency-patterns.md` at the start of **Step 2** — both for the known-service list that drives Part 1 and for the "Commonly missed proprietary dependencies" table that makes Part 2's judgment pass cheap. It also carries the full pattern list and detection keywords used in Step 3.
 - Read `references/abstraction-examples.md` while drafting "Recommended fix" sections in Step 7, so suggested code matches the shape (interface + implementation + DI wiring) appropriate to the target language.
 
 ## Output Discipline

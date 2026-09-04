@@ -45,6 +45,22 @@ is a finding. Conversely, an MIT-licensed Postgres driver binds you only to an
 open protocol, so it is Acceptable. When a permissively licensed client is just
 a wrapper around a proprietary SaaS, flag it.
 
+**Out of scope: infrastructure and deployment coupling.** `serverless.yml`,
+Helm charts and values, `docker-compose*.yml`, CI workflows, `Procfile`,
+`netlify.toml`, `firebase.json`, `app.yaml` and their kin are **not finding
+sources**. This audit is about the code's coupling to proprietary services, not
+about where the code is deployed - a project can move clouds without touching a
+line of business logic, which is exactly the property this report measures.
+
+Read those files anyway, as evidence: resolving an endpoint (R5), confirming
+which vendor products are enabled, and catching dynamic config that overrides
+static config. When a repository's *only* vendor coupling lives in deployment
+files - a compose-only or Helm-only project is the common case - the correct
+result is **no code-level findings**. Say that explicitly in the Executive
+Summary and name the deployment coupling in one informational sentence, so the
+clean result reads as a deliberate scope decision rather than an audit that did
+not look.
+
 **Licenses are facts to look up, not recall.** Vendor relicensing moves faster
 than any model's training data, and a confidently remembered license is the most
 likely way a correct finding gets wrongly overturned. The license table in
@@ -53,6 +69,13 @@ authority here; it is dated, and it covers the vendors whose licenses actually
 changed - Elastic, Sentry, Terraform, Confluent, MongoDB, Redis. If a finding
 cites a license basis, check it against that table rather than memory. If
 neither settles it, keep the finding and note the ambiguity.
+
+**Dual-licensed libraries (AGPL-or-commercial)** - iText, JasperReports,
+Highcharts and their kin - satisfy this test: an OSI-approved option exists, so
+they are **not findings**. Record them under Acceptable Dependencies with a
+one-line note that a closed-source deployment requires the paid licence. That
+is commercial dependence worth seeing, but it is not the vendor-controlled
+lock-in this audit measures.
 
 The whole audit is the question "if we had to replace vendor X tomorrow, which
 non-adapter files would change?" - where "vendor X" is a *proprietary*
@@ -74,7 +97,8 @@ default to the more severe role (Violation) and let Tier 2 downgrade it.
 | Adapter / Provider / Repository / Gateway | File implements an interface or abstract class AND its name or directory marks it as the vendor's wrapper (e.g. `stripe-payment.adapter.ts`, `adapters/`, `infrastructure/`, `repositories/`). | Acceptable |
 | Composition root / Bootstrap | Wires services into a DI container or factory at startup (e.g. `container.ts`, `main.py`, `bootstrap.js`, `wire.go`). | Acceptable |
 | Configuration | Reads vendor config from env vars; does not invoke the SDK. | Acceptable |
-| Domain or business logic with vendor call | Lives under `domain/`, `core/`, `services/`, `usecases/`, `controllers/`, `handlers/`, `app/`, etc. and imports the SDK directly. | Violation |
+| Domain or business logic with vendor call | Lives under `domain/`, `core/`, `usecases/`, `controllers/`, `handlers/`, `app/`, etc. and imports the SDK directly. | Violation |
+| Directory named `services/` | **Ambiguous - read R2b before labelling.** `services/` means "business services" in some layouts and "adapters to external services" in others. | Decide from the neighbours, not the name |
 | Test using real SDK | Integration test against live vendor. | Low - flag |
 | Test mocking the SDK directly | Unit test mocks the vendor instead of an interface. | Medium - coupling leaks into tests |
 
@@ -109,6 +133,41 @@ API, for instance. When that happens, the adapter itself can still be
 Acceptable; the bypass is its own separate finding. Do not fail an otherwise
 clean adapter because of a bypass elsewhere - report both facts.
 
+### R2b. Layout conventions that signal an adapter set
+
+A path is evidence, not proof, and the same directory name means opposite
+things in different ecosystems. Before calling a `services/` hit a violation,
+look at what sits *beside* it. These layouts are adapter sets, and flagging
+them is the most common false positive this audit can produce:
+
+- **`api` / `impl` / `noop` sibling modules.** A capability split into
+  `<capability>/api` (interfaces), `<capability>/impl` or one module per vendor
+  (`<capability>/posthog`, `<capability>/sentry`), and `<capability>/noop` (a
+  do-nothing build for privacy-respecting or offline variants) is a textbook
+  port-and-adapters set. The vendor module is the adapter; the `api` module is
+  the port. Real example: an Android client with
+  `services/analyticsproviders/{api,posthog,sentry}`.
+- **One directory per provider under a shared port.** `provider/openai`,
+  `provider/anthropic`, `provider/ollama` next to an abstract `provider`
+  class - the presence of *several* providers is itself the proof that the
+  abstraction works.
+- **Protocol + mock pairs.** In Swift or Kotlin, a `FooServiceProtocol` (or
+  interface) with both a vendor implementation and a `MockFooService` in tests
+  means the domain depends on the protocol, not the vendor.
+- **Native Android package-by-layer.** `activities/`, `fragments/`,
+  `widgets/`, `adapters/` (RecyclerView adapters!) are the *presentation*
+  layer, not the ports-and-adapters kind. A vendor SDK imported into an
+  `Activity` is a Violation; a directory literally named `adapters/` in an
+  Android app is usually about list rendering and is not an abstraction at all.
+  Read the file, not the folder.
+- **A `services/` directory whose files each wrap one external system**
+  (`stripe.service.ts`, `sendgrid.service.ts`, each implementing an interface)
+  is an adapter set. A `services/` directory holding `OrderService` and
+  `BillingService` that call vendors inline is the domain layer.
+
+When the layout says adapter and the name says domain, the layout wins - then
+confirm with R2a's sole-referencer check.
+
 ---
 
 ## R3. Severity
@@ -126,6 +185,20 @@ by appending a `?` in the finding heading (e.g. `[High?]`); Tier 2 removes the
   SDK directly.
 - **Low**: scripts, CLIs, migrations, or integration tests that import the SDK
   directly while production code is properly abstracted.
+
+**Build-variant containment (severity modifier).** A vendor confined to a
+non-default build variant - a `gplay` flavour that ships Firebase Cloud
+Messaging while the `fdroid` flavour ships a different push provider, a
+`debug`-only analytics SDK - is architecturally contained even when no
+interface exists: the project already demonstrates it can build and ship
+without that vendor. A flat grep sees no difference between a flavour-gated
+import and an unconditional one, so check the build files.
+
+Lower the severity by one level when the vendor appears **only** in
+non-default variant sources (`src/gplay/`, `src/<flavor>/`, a
+`<flavor>Implementation` dependency, a variant-gated plugin), and say which
+variant in the finding. Do not lower it when the gated variant is the one
+actually shipped to users - name which variant that is.
 
 **Ambiguity discount.** When a coupling is real but its *magnitude* depends on
 deployment config the repo does not settle - the indeterminate LLM `base_url` of
@@ -150,25 +223,39 @@ finding.
 - **Type-only imports** (`import type ...`) of vendor types when domain types
   are used everywhere else. If a vendor type leaks through a public interface,
   downgrade to Medium rather than ignore.
-- **LLM SDK pointed at a self-hostable, OpenAI-compatible endpoint** - an
-  `openai`/LLM client configured with a `base_url`/`baseURL` (or Python
-  `base_url`) that targets a self-hostable, open-weight runtime (vLLM, Ollama,
-  LiteLLM, LocalAI, TGI) is like AWS S3 with an `endpoint_url`: the same code
-  runs against a swappable open backend, so lock-in is reduced. This exception
-  applies *only* when the endpoint is self-hostable/open. It does **not** apply
-  when:
-  - there is no `base_url` override (the SDK hits the vendor's default hosted
-    API - a finding);
-  - the `base_url` points at another proprietary SaaS (Azure OpenAI, Groq,
-    Together, Perplexity) - still a finding, and re-attribute it to that vendor;
+- **A client pointed at a self-hosted instance of a hostable service.** This
+  is the general form of the AWS S3 `endpoint_url` case, and it is not
+  LLM-specific. When a vendor's client library is configured with a
+  `base_url` / `endpoint` / `host` that targets an instance the project can run
+  itself, the lock-in is materially reduced: the same code runs against a
+  backend nobody can withhold. It applies to every client of a hostable
+  service, including:
+
+  | Client | Self-hostable target that reduces lock-in |
+  |---|---|
+  | `openai` and OpenAI-compatible SDKs | vLLM, Ollama, LiteLLM, LocalAI, TGI |
+  | `@sentry/*`, `sentry-sdk` | a self-hosted Sentry (check the DSN host) |
+  | `posthog-*`, Matomo | a self-hosted instance |
+  | `@supabase/*` | a self-hosted Supabase, or plain PostgREST + Postgres - a repo using the Supabase client purely as a PostgREST client against its own database is NOT locked into Supabase, and calling it "BaaS lock-in" from the package name alone is a false positive |
+  | `elasticsearch` / `@elastic/*` | a self-hosted cluster, or OpenSearch |
+  | `boto3` / `@aws-sdk/client-s3` | MinIO, Ceph, Garage |
+  | `langfuse`, `livekit`, `pyvespa`, `clearml` | their self-hosted open-core servers |
+
+  Resolve the endpoint before applying this (R5 lists where to look). The
+  exception does **not** apply when:
+  - there is no endpoint override at all (the SDK hits the vendor's default
+    hosted service - a finding);
+  - the endpoint points at another proprietary SaaS (Azure OpenAI, Groq,
+    Together, Perplexity, Elastic Cloud, Sentry's own sentry.io on a paid
+    plan) - still a finding, and re-attribute it to that vendor;
   - the call uses a cloud-proprietary path such as `AnthropicBedrock` /
-    `AnthropicVertex` - still a finding;
-  - **the endpoint is indeterminate** - a bare `os.environ["LLM_BASE_URL"]` with
-    no default could be vLLM, Groq, or the vendor's own API depending on
-    deployment. Try to resolve it (R5 lists where to look); if it stays
-    unknowable, keep the finding at **Low or Medium with an ambiguity note**.
-    Never reject on an unresolvable variable - the exception rewards a codebase
-    that *shows* its endpoint is open, not one that hides it behind a variable.
+    `AnthropicVertex`;
+  - **the endpoint is indeterminate** - a bare `os.environ["LLM_BASE_URL"]`
+    with no default could be vLLM, Groq, or the vendor's own API depending on
+    deployment. Try to resolve it; if it stays unknowable, keep the finding at
+    **Low or Medium with an ambiguity note**. Never reject on an unresolvable
+    variable - the exception rewards a codebase that *shows* its endpoint is
+    open, not one that hides it behind a variable.
 
 - **React Native, the Expo SDK, and open RN modules** - `react-native`,
   `expo` and its OS-API wrappers (`expo-camera`, `expo-file-system`),
@@ -177,10 +264,27 @@ finding.
   libraries, not services, so R1's open-source rule applies: not findings, even
   imported straight into a screen. Only the proprietary *service* behind a
   binding is (`@react-native-firebase/*` -> Firebase, `react-native-purchases`
-  -> RevenueCat). Exception worth naming rather than flagging silently: App
-  Store / Play billing (`react-native-iap`, `expo-in-app-purchases`) is real
-  platform lock-in that no abstraction removes while you ship through those
-  stores - report it, and say so.
+  -> RevenueCat).
+
+- **Platform rails** - proprietary services that come with the platform you
+  ship on, and that no abstraction removes while you ship there. Report each
+  one, say plainly that an adapter contains the blast radius without removing
+  the coupling, and do not inflate the severity for something the project
+  cannot architect away:
+  - **App Store / Play billing** (`react-native-iap`, `expo-in-app-purchases`,
+    StoreKit, Play Billing).
+  - **OS push transports** - APNs and FCM are the only ways to reach an iOS or
+    Android device. The transport is platform rails; a push *vendor* layered on
+    top (OneSignal, Braze, Airship) is an ordinary finding, because that one is
+    swappable. Note which of the two a repository has: an app talking straight
+    to FCM is less locked in than one routing through a push SaaS.
+  - **Platform sign-in SDKs** - the Facebook Login SDK, Google Sign-In SDK and
+    Sign in with Apple bind you to that identity provider through its own SDK
+    and flow: findings, at platform-rails weight. The distinguishing test is
+    the protocol, not the provider - code speaking plain **OIDC/OAuth** against
+    a configurable issuer is Acceptable under "standard protocols" above, even
+    when the issuer happens to be Google, because swapping the issuer is
+    configuration.
 
 **Mobile bindings (`@react-native-firebase/*`, `react-native-purchases`, ...).**
 Same rule as the LLM wrappers below: the MIT binding is never the finding -
@@ -210,24 +314,61 @@ finding.**
 These two both mean "not a violation" and both stay out of the severity counts,
 but they say different things and must not be used interchangeably:
 
-- **REJECTED** — the claim was *wrong*. The cited lines are not real vendor
+- **REJECTED** - the claim was *wrong*. The cited lines are not real vendor
   usage at all: a comment, a doc, a fixture string, a stale TODO. Heading
   becomes `[N/A]`.
-- **ADJUSTED [OK]** — the usage is *real* but *acceptable* under R4. A genuine
+- **ADJUSTED [OK]** - the usage is *real* but *acceptable* under R4. A genuine
   adapter that passes R2a, an S3-only boto3 call, a `base_url` resolving to a
   self-hosted runtime. Heading becomes `[OK]`.
 
-A real adapter is `ADJUSTED ... [OK]`, never `REJECTED` — the Stripe SDK import
+A real adapter is `ADJUSTED ... [OK]`, never `REJECTED` - the Stripe SDK import
 is genuinely there, and the File Index should show it as a checked-and-cleared
 adapter rather than implying Tier 1 hallucinated it.
 
 ---
 
-## R5. Resolving an env-var LLM endpoint
+## R4b. Self-hosted but coupled services
 
-When a `base_url`/`baseURL` override reads from an environment variable, the
-endpoint is **not** knowable from that line. Chase the actual value before
-deciding, stopping at the first hit:
+Some dependencies are not proprietary at all and still shape the architecture:
+an Ollama runtime at `localhost:11434`, an Asterisk PBX, a PostgREST instance,
+a self-hosted Sentry, a SIP/STUN server named in `.env.example`. Today these
+are invisible to the audit - no vendor pattern matches them and no rule tells
+you what to do when one does.
+
+They are **not findings**: nobody can withhold, price, or discontinue software
+the project runs itself. But they are worth **one informational line** in
+Acceptable Dependencies, because replacing them is still real work and a reader
+comparing two codebases should see them. Say what the service is, that it is
+self-hosted or self-hostable, and where it is configured.
+
+The same line serves the case where a *proprietary* client is pointed at a
+self-hosted instance (R4's table): record the coupling, note that the endpoint
+resolves to something the project controls, and assign no severity.
+
+## R4c. Free hosted data APIs
+
+A public HTTP API with no token and an open-data licence - Open-Meteo,
+Nominatim's public instance, GeoJS, the Wayback Machine - is a **single-vendor
+dependency without lock-in economics**: no account, no contract, and usually a
+self-hostable or substitutable backend. Mention it informationally; do not
+raise a finding.
+
+The line moves as soon as the API is **token-gated or paid**: an API key in
+the config, a quota, or a commercial licence (ElectricityMaps is the corpus
+example) makes it an ordinary proprietary-service finding, judged like any
+other SaaS. The question is not "is it free today" but "can the vendor cut this
+off or charge for it".
+
+## R5. Resolving a service endpoint
+
+R4's self-hosted exception is only as good as the endpoint you can actually
+resolve. This rule applies to **any** client of a hostable service - an LLM
+runtime, Sentry, PostHog, Supabase/PostgREST, Elasticsearch, S3 - not just LLM
+SDKs.
+
+When a `base_url` / `baseURL` / `endpoint` / DSN reads from an environment
+variable, the endpoint is **not** knowable from that line. Chase the actual
+value before deciding, stopping at the first hit:
 
 1. A literal default in the call itself (`os.environ.get(..., "http://...")`,
    `process.env.X ?? "http://..."`).
@@ -245,7 +386,38 @@ missing evidence, not evidence of an open endpoint.
 
 A useful secondary signal: a hardcoded proprietary model name (`gpt-4o`,
 `claude-sonnet-4`) alongside an unresolved `base_url` points at the vendor's
-hosted API, since no open-weight runtime serves those models.
+hosted API, since no open-weight runtime serves those models. The equivalent
+for other services: a DSN whose host is `*.ingest.sentry.io`, a Supabase URL
+ending in `.supabase.co`, an Elastic Cloud ID - each pins the hosted tier.
+
+### R5a. Endpoints resolved at runtime, not in source
+
+Some codebases make the static ladder unanswerable *by design*, and that is a
+different verdict from "indeterminate variable". The shape to recognize is a
+**provider registry**: one client class instantiated repeatedly with a
+different endpoint per provider, where the endpoints come from a database
+table, an admin UI, a plugin registry, or another service's API
+(`modal.Function.get_web_url()` returning the URL of a self-hosted vLLM
+deployment, for instance).
+
+Do not force this into a single verdict. Instead:
+
+1. **Describe the registry**: where the provider list lives (table, config
+   module, plugin directory), and where the endpoint value comes from.
+2. **Judge each leg separately.** A registry containing OpenAI, Anthropic, a
+   self-hosted vLLM and a hosted Groq deployment is one finding per
+   *proprietary* leg, not one finding for the registry. Legs that resolve to
+   self-hosted runtimes fall under R4.
+3. **Credit the indirection.** A registry with a stable internal interface is
+   doing an adapter's job: the swap cost is a row, not a rewrite. That is a
+   severity reduction (often to Low, sometimes `[OK]`), even though several
+   proprietary providers are reachable.
+4. Verdict wording: `ADJUSTED (endpoint resolved at runtime - provider
+   registry)`, with the per-leg judgment in the verification note.
+
+The distinction that matters: an unresolvable *variable* is missing evidence
+(keep the finding, Low/Medium, ambiguity noted); a *registry* is present
+evidence of an abstraction (describe it, judge the legs).
 
 ---
 
@@ -265,3 +437,55 @@ is not the first one:
 
 Cited lines that turn out to be a comment, a doc, a test fixture string, or
 otherwise not real usage are false positives.
+
+---
+
+## R7. Hardcoded credentials next to a vendor hit
+
+While reading call sites you will find API keys, tokens and project IDs
+committed in source: a translation-service token in a `Constants.h`, a vision
+API key in a Dart service class, an analytics environment ID in a layout
+component, a tracking ID in `index.html`.
+
+**This is never the finding.** Credential hygiene is not platform
+independence, and this audit does not become a secrets scan. But it costs one
+sentence to say, and it is high-value information the reader gets nowhere else
+in the report:
+
+- add it as a single clause in the finding that already cites that file
+  ("...and the API key is hardcoded at `lib/roboflow_service.dart:14`");
+- never create a finding for it, never assign it a severity, never let it
+  change the severity of the coupling;
+- do not quote the credential value itself - cite `path:line`.
+
+If a repository is riddled with them, one line in the Architecture
+Recommendations ("several vendor credentials are committed in source; rotate
+and move them to configuration") is the right amount of attention.
+
+---
+
+## R8. Findings inherited from an upstream fork
+
+Many deployments are forks of an upstream platform: a Dolibarr-based ERP, an
+ODK-based data-collection app, a Coqui-based speech stack. Vendor couplings
+inside inherited upstream code are **real for the deployment** - if the vendor
+disappears, the deployment breaks - but they are not the same actionable item
+as coupling the project's own team wrote.
+
+Report them, and attribute them:
+
+- keep the finding (the lock-in exists regardless of who wrote the line);
+- mark it `inherited from upstream <project>` in the finding, and prefer one
+  aggregate finding per upstream vendor over dozens of per-file findings
+  (`triage-and-noise.md` T5);
+- adjust the *recommendation*, not the severity: for inherited code the
+  realistic advice is usually "raise it upstream, or isolate it behind a
+  project-owned wrapper", not "refactor the vendor call";
+- when the project's own code adds a *new* vendor coupling on top of the
+  upstream base, say so explicitly - that is the part the team controls, and
+  it is what the reader most needs separated out.
+
+Detect the situation from a `README` naming the upstream, a fork marker in the
+repository metadata, an upstream `CHANGELOG`, or a directory tree that matches
+a known project's layout. When unsure whether code is inherited, say so rather
+than guessing.

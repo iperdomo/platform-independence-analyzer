@@ -7,24 +7,36 @@
 #
 # Requires: ripgrep (rg) only.
 #
+# PATTERNS LIVE IN ONE PLACE: references/patterns.tsv. This script reads them at
+# runtime, and `scan.sh --print-patterns` renders the same patterns as `rg`
+# one-liners for a script-less run. Adding a vendor is a one-line change in the
+# TSV - do not paste patterns into this file or into the reference docs.
+#
 # Language coverage: JS/TS (incl. React Native), Python, Java/Kotlin, Go,
-# .NET/C#, Swift/Objective-C, and CocoaPods/Gradle manifests. Ruby, PHP, Rust,
-# and Dart/Flutter import shapes are NOT covered - no output for those
-# ecosystems means nothing was searched for, not that the repo is clean.
-# See SKILL.md Step 3.
+# .NET/C#, Swift/Objective-C, PHP, Dart/Flutter, Clojure/Scala, and
+# CocoaPods/Gradle/pubspec manifests. Ruby and Rust import shapes are NOT
+# covered - no output for those ecosystems means nothing was searched for, not
+# that the repo is clean. See SKILL.md Step 3.
 #
 # Every pattern runs under `rg -in`, so case carries no signal: `import firebase`
 # matches Swift `import FirebaseCore`, Python `import firebase_admin`, and JS
 # `import firebase from` alike. Do not write patterns that depend on case.
-# Usage:    scripts/scan.sh [ROOT_DIR]      (ROOT_DIR defaults to ".")
 #
-# Output shape: a per-vendor HIT SUMMARY first, then the grouped detail. Compare
-# the summary counts against the detail you actually received - if they disagree,
-# the output was truncated somewhere downstream and the draft would be silently
+# Usage:
+#   scripts/scan.sh [ROOT_DIR]        scan ROOT_DIR (defaults to ".")
+#   scripts/scan.sh --print-patterns  print the rg one-liners and exit
+#   PIA_PATTERNS=<file> scripts/scan.sh ...   use a different pattern table
+#
+# Output shape: a per-vendor HIT SUMMARY, then a HITS BY DIRECTORY triage table,
+# then the grouped detail. The counts are always exact. Large groups print a
+# per-directory SAMPLE of the detail and say so on a `# SAMPLED:` line - that is
+# announced, not silent. A detail block shorter than its count with NO SAMPLED
+# line means the output was truncated downstream and the draft would be silently
 # incomplete. Redirect to a file and read that rather than piping to a tool with
 # an output cap.
 #
-# Exit codes: 0 = ran (with or without hits); 127 = ripgrep not installed.
+# Exit codes: 0 = ran (with or without hits); 2 = pattern table missing or empty;
+# 127 = ripgrep not installed.
 # ripgrep is a hard requirement - on 127 the audit stops and the user installs
 # rg. Do not substitute another search path: findings must come from this exact
 # reproducible scan.
@@ -37,12 +49,69 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PATTERNS_FILE="${PIA_PATTERNS:-$SCRIPT_DIR/../references/patterns.tsv}"
+
+# Detail-output caps. The HIT SUMMARY counts are always complete and exact; only
+# the printed detail is capped, and every cap is announced in the output. A repo
+# with a committed vendor SDK can produce tens of thousands of hits in one group,
+# and an unreadable 10MB scan file is its own failure mode. Sampling per
+# directory (rather than head -N) keeps first-party hits visible when a vendored
+# tree dominates a group. Set PIA_MAX_DETAIL=0 for no cap.
+MAX_DETAIL_PER_GROUP="${PIA_MAX_DETAIL:-1500}"
+MAX_DETAIL_PER_DIR="${PIA_MAX_DETAIL_PER_DIR:-10}"
+
+PRINT_ONLY=0
+if [ "${1:-}" = "--print-patterns" ]; then
+  PRINT_ONLY=1
+  shift
+fi
+
 ROOT="${1:-.}"
 
 if ! command -v rg >/dev/null 2>&1; then
   echo "error: ripgrep (rg) is required but was not found on PATH" >&2
   echo "install it (pacman -S ripgrep / apt install ripgrep / brew install ripgrep), then re-run" >&2
   exit 127
+fi
+
+if [ ! -r "$PATTERNS_FILE" ]; then
+  echo "error: pattern table not found or unreadable: $PATTERNS_FILE" >&2
+  echo "it ships with the skill at references/patterns.tsv; set PIA_PATTERNS to override" >&2
+  exit 2
+fi
+
+# Load the pattern table: LABEL <TAB> PATTERN <TAB> NOTE, '#' comments ignored.
+LABELS=()
+PATTERNS=()
+NOTES=()
+while IFS=$'\t' read -r label pat note; do
+  case "$label" in ''|'#'*) continue ;; esac
+  [ -z "$pat" ] && continue
+  LABELS+=("$label")
+  PATTERNS+=("$pat")
+  NOTES+=("${note:-}")
+done < "$PATTERNS_FILE"
+
+if [ "${#LABELS[@]}" -eq 0 ]; then
+  echo "error: no patterns loaded from $PATTERNS_FILE" >&2
+  exit 2
+fi
+
+if [ "$PRINT_ONLY" -eq 1 ]; then
+  echo "# rg one-liners generated from $(basename "$PATTERNS_FILE") (${#LABELS[@]} groups)"
+  echo "# Run from the repository root. Add the exclusions this script uses:"
+  echo "#   --glob '!**/vendor/**' --glob '!**/Pods/**' --glob '!**/*.pbxproj' \\"
+  echo "#   --glob '!**/.expo/**' --glob '!**/*.lock' --glob '!**/package-lock.json' \\"
+  echo "#   --glob '!**/*.md' --glob '!**/PLATFORM-DEPENDENCY-ANALYSIS.*'"
+  for i in "${!LABELS[@]}"; do
+    echo
+    echo "# ${LABELS[$i]}"
+    [ -n "${NOTES[$i]}" ] && echo "#   note: ${NOTES[$i]}"
+    esc="${PATTERNS[$i]//\'/\'\\\'\'}"
+    printf "rg -in '%s'\n" "$esc"
+  done
+  exit 0
 fi
 
 EXCLUDES=(
@@ -53,60 +122,65 @@ EXCLUDES=(
   --glob '!**/*.lock'
   --glob '!**/package-lock.json'
   --glob '!**/*.md'
+  --glob '!**/*.orig'           # merge/patch leftovers restate whole files
+  --glob '!**/*.rej'
   --glob '!**/PLATFORM-DEPENDENCY-ANALYSIS.*'
+  # COMMITTED build output. rg skips these when they are gitignored, but repos do
+  # commit them - a tracked dist/ full of bundled vendor code otherwise lands in
+  # the draft as first-party usage.
+  --glob '!**/dist/**'
+  --glob '!**/build/**'
+  --glob '!**/out/**'
+  --glob '!**/*.min.js'
+  --glob '!**/*.min.css'
+  --glob '!**/*.bundle.js'
+  # Committed third-party trees under names rg has no way to guess.
+  --glob '!**/third_party/**'
+  --glob '!**/thirdparty/**'
+  --glob '!**/extlibs/**'
+  --glob '!**/ExtLibs/**'
+  # Translated UI strings: a locale catalog naming a vendor is prose, not usage.
+  --glob '!**/locales/**'
+  --glob '!**/*.po'
+  --glob '!**/*.pot'
+  --glob '!**/*.mo'
+  --glob '!**/*.arb'
+  --glob '!**/*.xlf'
+  # Notebook checkpoints duplicate every cell of their notebook.
+  --glob '!**/.ipynb_checkpoints/**'
 )
 
-# Parallel arrays: LABELS[i] is the vendor name, PATTERNS[i] its rg regex.
-# Patterns mirror references/dependency-patterns.md (case-insensitive via -i,
-# word boundaries to cut substring/prose noise).
-LABELS=(
-  "Firebase"
-  "React Native / mobile vendor SDKs (attribute to the underlying service - classification-rules R4)"
-  "Google Maps"
-  "Stripe"
-  "MongoDB"
-  "Twilio / SendGrid"
-  "AWS (non-S3 - filter S3-only per classification-rules R4)"
-  "Azure"
-  "Google Cloud"
-  "Algolia"
-  "Auth0 / Okta"
-  "Analytics (Segment/Mixpanel/Amplitude/PostHog)"
-  "Observability (Datadog/New Relic)"
-  "OpenAI (check for base_url override - classification-rules R4/R5)"
-  "Anthropic"
-  "Google Gemini"
-  "Cohere"
-  "Mistral"
-  "LLM wrapper SDKs (attribute to the underlying vendor - classification-rules R4)"
-  "Vendor API endpoints, raw HTTP (deliberately noisy - Tier 2 prunes)"
-)
-PATTERNS=(
-  "@react-native-firebase|from ['\"]firebase|require\\(['\"]firebase|firebase[-_](admin|functions)|\\bimport firebase|@angular/fire|\\b(reactfire|vuefire)\\b|react-firebase-hooks|firestore\\(|getFirestore|\\bgetAuth\\(|onAuthStateChanged|createUserWithEmailAndPassword|signInWith(EmailAndPassword|Credential|CustomToken|Popup|Redirect|PhoneNumber)\\(|onSnapshot\\(|firebase\\.google\\.com/go|com\\.google\\.firebase|com\\.google\\.gms\\.google-services|GoogleService-Info|\\bFirebase(Admin|App|Core|Firestore|Auth|Storage|Messaging|Analytics|Crashlytics|RemoteConfig)\\b|pod ['\"]Firebase"
-  "@react-native-firebase/|react-native-purchases|\\brevenuecat\\b|react-native-onesignal|\\bonesignal\\b|react-native-google-mobile-ads|react-native-fbsdk|@react-native-google-signin|@stripe/stripe-react-native|react-native-maps|@sentry/react-native|@bugsnag/react-native|react-native-branch|\\bappsflyer\\b|react-native-adjust|@intercom/intercom-react-native|react-native-zendesk|react-native-code-push|\\bappcenter-|react-native-iap|expo-in-app-purchases|@segment/analytics-react-native|@amplitude/analytics-react-native|mixpanel-react-native|posthog-react-native|@react-native-community/push-notification-ios"
-  "@googlemaps|google\\.maps|googlemaps\\.Client|new google\\.|googlemaps\\.github\\.io/maps|\\bimport GoogleMaps\\b|pod ['\"]GoogleMaps|com\\.google\\.android\\.gms\\.maps"
-  "from ['\"]stripe['\"]|require\\(['\"]stripe|import Stripe|\\bstripe\\.[a-zA-Z]|stripe/stripe-go|using Stripe\\b|\\bStripeConfiguration\\b|com\\.stripe\\.android"
-  "\\bMongoClient\\b|require\\(['\"](mongodb|mongoose)|\\bmongoose\\b|\\bpymongo\\b|com\\.mongodb|go\\.mongodb\\.org|mongo-driver|MongoDB\\.Driver"
-  "\\btwilio\\b|require\\(['\"](twilio|@sendgrid)|@sendgrid|\\bsendgrid\\b"
-  "aws-sdk|\\bboto3\\b|@aws-sdk|aws-amplify|@aws-amplify/|com\\.amazonaws|software\\.amazon\\.awssdk|\\bAWSSDK\\b|using Amazon\\."
-  "@azure/|azure\\.identity|azure\\.storage|azure-sdk-for-go|using Azure\\.|Microsoft\\.Azure\\."
-  "@google-cloud/|google\\.cloud\\.|cloud\\.google\\.com/go"
-  "algoliasearch|@algolia/"
-  "\\bauth0\\b|@auth0/|@okta/|okta-auth"
-  "segment\\.io|\\bmixpanel\\b|\\bamplitude\\.|\\bposthog\\b"
-  "\\bdatadog\\b|dd-trace|\\bnewrelic\\b|@datadog/"
-  "from ['\"]?openai\\b|require\\(['\"]openai|\\bimport openai\\b|\\bOpenAI\\(|\\bAzureOpenAI\\(|\\bopenai\\.[a-zA-Z]"
-  "@anthropic-ai/|from ['\"]?anthropic\\b|\\bimport anthropic\\b|\\bAnthropic\\(|AnthropicBedrock|AnthropicVertex|\\banthropic\\.[a-zA-Z]"
-  "@google/generative-ai|@google/genai|google-genai|google[-.]generativeai|google import genai|\\bGoogleGenerativeAI\\b|\\bgenai\\.[a-zA-Z]"
-  "cohere-ai|from ['\"]?cohere\\b|\\bimport cohere\\b|\\bCohereClient\\b|\\bcohere\\.[a-zA-Z]"
-  "@mistralai/|from ['\"]?mistralai\\b|\\bimport mistralai\\b|\\bMistralClient\\b|\\bMistral\\(|\\bmistralai\\.[a-zA-Z]"
-  "langchain[_.-](openai|anthropic|google_genai|google-genai|google_vertexai|cohere|mistralai|aws)|@langchain/(openai|anthropic|google-genai|google-vertexai|cohere|mistralai|aws)|@ai-sdk/(openai|anthropic|google|mistral|cohere|amazon-bedrock)|llama[_-]index\\.llms\\.[a-z]|\\bChat(OpenAI|Anthropic|GoogleGenerativeAI|VertexAI|Bedrock|Cohere|MistralAI)\\b|\\bAzureChatOpenAI\\b|\\blitellm\\b"
-  "api\\.(stripe|openai|anthropic|twilio|sendgrid|cohere|mistral|mixpanel|amplitude|segment|contentful|pinecone|notion|airtable)\\.(com|io|ai)|api\\.datadoghq\\.com|\\.googleapis\\.com|\\.firebaseio\\.com|hooks\\.slack\\.com|\\.openai\\.azure\\.com|\\.algolia(net)?\\.(com|net)|ingest\\.sentry\\.io|\\.snowflakecomputing\\.com|app\\.launchdarkly\\.com"
+# Printed with the results so a reader knows what silence means. Keep in sync
+# with EXCLUDES above and with SKILL.md Step 1.
+EXCLUDES_HUMAN="vendor/ Pods/ *.pbxproj *.orig *.rej .expo/ lock files *.md dist/ build/ out/ *.min.js *.min.css *.bundle.js third_party/ thirdparty/ extlibs/ locales/ *.po *.pot *.mo *.arb *.xlf .ipynb_checkpoints/ (plus everything .gitignore excludes)"
+
+# Vendor config files whose PRESENCE is the evidence: their contents may name no
+# vendor at all (eas.json, an app.config.js), so a content grep misses them. A
+# hit here is wiring, not usage - Bootstrap per classification-rules R2.
+CONFIG_GLOBS=(
+  -g 'google-services.json' -g 'GoogleService-Info.plist' -g 'agconnect-services.json'
+  -g 'firebase.json' -g '.firebaserc' -g 'sentry.properties' -g 'newrelic.properties'
+  -g 'eas.json' -g 'app.config.js' -g 'app.config.ts' -g 'Podfile' -g 'capacitor.config.json'
+  -g '.flutter-plugins-dependencies' -g 'gradle/libs.versions.toml'
 )
 
 echo "# platform-independence scan"
 echo "# root: $ROOT"
+echo "# patterns: $PATTERNS_FILE (${#LABELS[@]} groups)"
+echo "# excluded: $EXCLUDES_HUMAN"
+echo "# A vendor whose only trace is in an excluded path produces NO hits here."
 echo
+
+cfg="$(rg --files --hidden --glob '!**/node_modules/**' --glob '!**/Pods/**' \
+      "${CONFIG_GLOBS[@]}" -- "$ROOT" 2>/dev/null | LC_ALL=C sort)"
+if [ -n "$cfg" ]; then
+  echo "== VENDOR CONFIG FILES PRESENT (by filename - wiring, not usage) =="
+  printf '%s\n' "$cfg"
+  echo "# A GoogleService-Info.plist or google-services.json proves Firebase is wired"
+  echo "# even when no manifest declares it. app.config.js is executable and overrides"
+  echo "# app.json - read it. eas.json means EAS Build/Update/Submit (proprietary)."
+  echo
+fi
 
 found_any=0
 total=0
@@ -147,8 +221,66 @@ if [ "$found_any" -eq 1 ]; then
   printf '%6d  TOTAL hits across %d vendor groups\n' "$total" "$groups"
   echo "# If the detail below is shorter than these counts, output was truncated."
   echo
+
+  # Directory breakdown: triage whole trees in one decision instead of reading
+  # thousands of individual hits. A committed third-party tree shows up here as
+  # one very large number, and is marked when marker files are found inside it.
+  echo "== HITS BY DIRECTORY (triage these trees before reading hits) =="
+  dirlist="$(printf '%s\n' "${RESULTS[@]}" \
+    | sed -e 's/:.*//' -e "s|^${ROOT%/}/||" \
+    | awk -F/ 'NF<=1 {print "(root)"; next} NF==2 {print $1"/"; next} {print $1"/"$2"/"}' \
+    | LC_ALL=C sort | uniq -c | LC_ALL=C sort -rn | head -25)"
+  allpaths="$(printf '%s\n' "${RESULTS[@]}" | sed -e 's/:.*//' -e "s|^${ROOT%/}/||")"
+  while read -r cnt dir; do
+    [ -z "$cnt" ] && continue
+    marks=""
+    if [ "$dir" != "(root)" ] && [ -d "${ROOT%/}/$dir" ]; then
+      if rg --files --hidden -g 'LICENSE*' -g 'COPYING*' -g '*.min.js' -g 'thirdpartylibs.xml' \
+            -- "${ROOT%/}/$dir" 2>/dev/null | head -1 | grep -q .; then
+        marks="  <- LICENSE/COPYING or minified file inside: check for a vendored third-party tree"
+      fi
+    fi
+    printf '%6d  %s%s\n' "$cnt" "$dir" "$marks"
+    # One level deeper for the trees big enough that "read every hit" is not a
+    # plan. This is where a committed SDK usually becomes obvious by name.
+    if [ "$cnt" -ge 200 ] && [ "$dir" != "(root)" ]; then
+      printf '%s\n' "$allpaths" | grep -F "$dir" \
+        | awk -F/ -v pre="$dir" 'NF>=4 {print pre $3"/"}' \
+        | LC_ALL=C sort | uniq -c | LC_ALL=C sort -rn | head -8 \
+        | while read -r c2 d2; do printf '%6d      %s\n' "$c2" "$d2"; done
+    fi
+  done <<< "$dirlist"
+  echo "# A vendored tree is evidence the vendor is USED; it is not hundreds of"
+  echo "# findings. Classify the tree once, then read only first-party hits."
+  echo
   for i in "${!LABELS[@]}"; do
-    [ -n "${RESULTS[$i]:-}" ] && printf '== %s ==\n%s\n\n' "${LABELS[$i]}" "${RESULTS[$i]}"
+    if [ -n "${RESULTS[$i]:-}" ]; then
+      printf '== %s ==\n' "${LABELS[$i]}"
+      [ -n "${NOTES[$i]}" ] && printf '# note: %s\n' "${NOTES[$i]}"
+      if [ "$MAX_DETAIL_PER_GROUP" -gt 0 ] && [ "${COUNTS[$i]}" -gt "$MAX_DETAIL_PER_GROUP" ]; then
+        # Quota by the first three path components, not by the immediate parent:
+        # a vendored SDK spreads over hundreds of leaf directories and would
+        # otherwise consume the whole cap before any first-party hit is printed.
+        # Sample, do not truncate: up to N lines per directory (keyed on the
+        # first three path components, because a vendored SDK spreads over
+        # hundreds of leaf directories and would otherwise crowd out every
+        # first-party hit). Every directory with hits stays represented.
+        shown="$(printf '%s\n' "${RESULTS[$i]}" | awk -F: -v perdir="$MAX_DETAIL_PER_DIR" \
+          -v root="${ROOT%/}/" \
+          '{p=$1; if (index(p,root)==1) p=substr(p,length(root)+1);
+            n2=split(p,a,"/"); k=a[1]; if (n2>2) k=k"/"a[2]; if (n2>3) k=k"/"a[3];
+            if (++c[k]<=perdir) print}' | head -n "$MAX_DETAIL_PER_GROUP")"
+        nshown="$(printf '%s\n' "$shown" | grep -c '')"
+        printf '%s\n' "$shown"
+        printf '# SAMPLED: showing %d of %d hits (up to %d per directory).\n' \
+          "$nshown" "${COUNTS[$i]}" "$MAX_DETAIL_PER_DIR"
+        printf '# The count above is exact - nothing was lost silently. Triage this\n'
+        printf '# group with HITS BY DIRECTORY, then re-run scoped to a directory, or\n'
+        printf '# set PIA_MAX_DETAIL=0 to print everything.\n\n'
+      else
+        printf '%s\n\n' "${RESULTS[$i]}"
+      fi
+    fi
   done
 fi
 

@@ -552,7 +552,38 @@ returns, the main agent must:
 5. Flip the header line to `- Verification: completed <YYYY-MM-DD>`.
 6. Relay a concise summary to the user: counts by severity, how many claims were confirmed / adjusted / rejected, and
    the top one or two concerns - because the subagent's report never reaches them.
-7. If available, produce a html version of the report using `marked`, first test if the tool is present
+7. **Pin every `path:line` reference to a permalink** with `scripts/linkify.py`. Run it *after* the
+   report is verified and *before* the HTML is rendered, so the rendered page is clickable. Its
+   real value is the checking: it aborts unless every reference exists at the pinned commit, is
+   within the file, and does not land on a blank line. It needs only `python3` and `git`.
+
+```bash
+   python3 <SKILL_DIR>/scripts/linkify.py PLATFORM-DEPENDENCY-ANALYSIS.md            # dry run: validate
+   python3 <SKILL_DIR>/scripts/linkify.py --audit PLATFORM-DEPENDENCY-ANALYSIS.md    # resolutions + source lines
+   python3 <SKILL_DIR>/scripts/linkify.py --write PLATFORM-DEPENDENCY-ANALYSIS.md    # apply
+```
+
+   Treat its output as a verification stage, not a formatting step:
+
+   - **It links only self-contained references**: `path:NN` and `path:NN-MM`, where the path
+     exists verbatim at that commit. A bare `:NN` continuation, a comma list (`path:1,4,9`) or a
+     shorthand basename (`settings.py`) is skipped and left as plain text. So **write the full
+     path on every reference you want linked** - `daras_ai_v2/asr.py:1291`, not `asr.py:1291` and
+     not a trailing `:1295`. That convention is what keeps the script stateless, and it removes an
+     entire class of error: a bare continuation silently attaching to the wrong file.
+   - **Validation errors are report bugs.** An out-of-range or blank-line reference means the line
+     number is wrong. Fix the *report*, never the check. A reference landing on the blank line
+     before the statement it describes is the single most common case.
+   - **Always read `--audit` before writing.** Validation proves a line exists; only the audit
+     shows *what is on it*. A reference pointing at a valid line in the wrong file passes
+     validation silently, and that is the failure mode that matters most in a report whose whole
+     value is its citations.
+   - **`skipped` is a to-do list, not noise.** Each entry is a reference the report made that the
+     script could not pin. Usually the fix is to spell out the full path in the prose.
+   - Re-running is a no-op, so it doubles as a staleness check: re-point `--sha` at a newer commit
+     and any drifted line number shows up as an error.
+
+8. If available, produce a html version of the report using `marked`, first test if the tool is present
 
 ```bash
    command -v marked # if present, execute the conversion

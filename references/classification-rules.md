@@ -70,12 +70,25 @@ changed - Elastic, Sentry, Terraform, Confluent, MongoDB, Redis. If a finding
 cites a license basis, check it against that table rather than memory. If
 neither settles it, keep the finding and note the ambiguity.
 
-**Dual-licensed libraries (AGPL-or-commercial)** - iText, JasperReports,
-Highcharts and their kin - satisfy this test: an OSI-approved option exists, so
-they are **not findings**. Record them under Acceptable Dependencies with a
-one-line note that a closed-source deployment requires the paid licence. That
-is commercial dependence worth seeing, but it is not the vendor-controlled
-lock-in this audit measures.
+**Dual-licensed libraries (AGPL-or-commercial)** - iText (AGPL-3.0 or
+commercial), JasperReports (LGPL) and their kin - satisfy this test: an
+OSI-approved option exists, so they are **not findings**. Record them under
+Acceptable Dependencies with a one-line note that a closed-source deployment
+requires the paid licence. That is commercial dependence worth seeing, but it
+is not the vendor-controlled lock-in this audit measures.
+
+**Do not stretch this exemption to "free for non-commercial use".** The test is
+whether an *OSI-approved* option exists, not whether some tier is free of
+charge. A licence restricted to personal, educational, evaluation, or
+non-profit use is proprietary: it discriminates against fields of endeavour,
+which is exactly what OSI approval rules out. **Highcharts is the trap** - it
+is widely assumed to be dual-licensed and is not; its free tier is
+personal/school/non-profit only, with no copyleft option, so a Highcharts
+coupling is an ordinary proprietary finding. Handsontable (HANDSONCODE) is
+the same shape, and adds a non-compete clause on top. A useful mechanical tell: a `package.json`
+or lock-file `license` field holding a **URL instead of an SPDX identifier**
+means the licence has no SPDX id, which almost always means it is not
+OSI-approved. Treat that as evidence for a finding, not against one.
 
 The whole audit is the question "if we had to replace vendor X tomorrow, which
 non-adapter files would change?" - where "vendor X" is a *proprietary*

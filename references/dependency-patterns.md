@@ -463,9 +463,10 @@ it is informational instead. The signal to look for is a hardcoded
 
 ### Dual-licensed (AGPL-or-commercial) libraries
 
-`iText`, `JasperReports`, `Highcharts` and their kin ship under an OSI-approved
-copyleft licence *or* a paid commercial licence. R1's test is satisfied - an
-OSI-approved option exists - so these are **not findings**.
+`iText` (AGPL-3.0 or commercial), `JasperReports` (LGPL) and their kin ship
+under an OSI-approved copyleft licence *or* a paid commercial licence. R1's
+test is satisfied - an OSI-approved option exists - so these are **not
+findings**.
 
 They are also not nothing: a project that cannot comply with AGPL/GPL terms is
 buying a per-seat licence from a single vendor, and that is real commercial
@@ -473,6 +474,36 @@ dependence. Record them under **Acceptable Dependencies** with a one-line
 "commercial-licence coupling" note naming the library, the copyleft obligation,
 and the fact that a proprietary deployment requires the paid licence. Do not
 assign a severity.
+
+**The near-miss: "free for non-commercial use" is not dual-licensed.** Verify
+that the free option is actually OSI-approved before applying this exemption.
+A licence limited to personal, school, evaluation, or non-profit use fails
+OSI's no-discrimination-against-fields-of-endeavour criterion, so it is
+proprietary and the coupling is an ordinary finding.
+
+`Highcharts` is the canonical error here and was wrong in this table until
+2026-09-16: it has **no copyleft tier at all**. Highsoft's catalogue
+(https://shop.highcharts.com/license-types) offers a free personal/school/
+non-profit licence or a paid commercial one, and nothing OSI-approved between
+them. `Handsontable` is the same shape, and announces itself more honestly -
+its bundle header states the non-commercial tier is personal/evaluation only
+and adds a non-compete clause. Both are findings, severity by R3 like any
+other proprietary dependency.
+
+**Mechanical tell.** In `package.json` or a lock file, a `license` field
+holding a **URL rather than an SPDX identifier** means no SPDX id exists for
+that licence, which almost always means it is not OSI-approved:
+
+```json
+"license": "https://www.highcharts.com/license"
+```
+
+Neither of these libraries is reachable by the vendor patterns in
+`patterns.tsv` - both were found only by Step 2's residual judgment pass, and
+one of them (`Handsontable`) was committed as a minified bundle with no
+manifest entry at all. When auditing a repository with a front end, read the
+JS/TS manifests and any committed `static/**/vendor/` tree for licence headers,
+rather than trusting the scan's silence.
 
 ## LLM Wrapper Attribution
 
@@ -608,7 +639,8 @@ naive "hosted SaaS = lock-in" reading produces a false positive.
 | TigerBeetle | Source-available, single-vendor, no fork ecosystem | Judgment call - flag with the reasoning stated |
 | Seq / Datalust (`Serilog.Sinks.Seq`) | Proprietary log server, free single-user tier | Finding, usually Low - a log sink is swappable |
 | AdMob, Facebook Instant Games, Steamworks, Epic Online Services | Proprietary platform/ad SDKs | Finding as platform rails; an adapter isolates the blast radius, it does not remove the coupling |
-| iText, JasperReports, Highcharts | Dual-licensed: OSI-approved copyleft OR paid commercial | NOT a finding - record under Acceptable Dependencies with a commercial-licence note (see below) |
+| iText, JasperReports | Dual-licensed: OSI-approved copyleft (AGPL/LGPL) OR paid commercial | NOT a finding - record under Acceptable Dependencies with a commercial-licence note (see below) |
+| Highcharts, Handsontable | Proprietary UI libraries with a free **non-commercial** tier and NO OSI-approved option - commonly mistaken for the row above | Finding - severity by R3 like any proprietary dependency. Tell: lock-file `license` is a URL, not an SPDX id |
 
 ### Ripgrep One-Liners
 

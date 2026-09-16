@@ -157,6 +157,11 @@ follow-up.
 
 ## Requirements
 
+Three tools on `PATH`: **ripgrep** for the scan, and **git** + **python3** for
+the permalink pass. Everything else the skill uses is standard shell.
+
+### ripgrep (`rg`)
+
 - [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) **must** be installed
   and available on `PATH`. The skill uses `rg` to locate vendor SDK call sites
   across the repository, and the bundled `scripts/scan.sh` requires it.
@@ -203,6 +208,37 @@ follow-up.
   same patterns rather than hand-written ones. Adding a vendor is a one-line
   change in the TSV.
 
+### git and python3
+
+- **`git`** and **`python3` (3.9 or newer)** must be available. They are what
+  `scripts/linkify.py` needs - the last step of the audit, run after the report
+  is verified and before the HTML is rendered:
+
+  ```
+  python3 scripts/linkify.py PLATFORM-DEPENDENCY-ANALYSIS.md            # validate
+  python3 scripts/linkify.py --audit PLATFORM-DEPENDENCY-ANALYSIS.md    # show resolutions
+  python3 scripts/linkify.py --write PLATFORM-DEPENDENCY-ANALYSIS.md    # apply
+  ```
+
+  It turns every `` `path:line` `` reference into a permalink pinned to one
+  commit (GitHub, GitLab and Bitbucket URL shapes), but its real job is the
+  checking: a reference is linked only if the file exists at that commit, the
+  line is in range, and the line is not blank. Anything else aborts the run, so
+  a drifted line number is reported rather than published. `--audit` prints each
+  reference next to the source line it resolved to, which is the only way to
+  catch a reference that is valid but points at the *wrong* file.
+
+  `git` reads the pinned tree and derives the base URL from the `origin` remote;
+  `python3` needs **no third-party packages** - the script is standard library
+  only. Re-running is a no-op, so it doubles as a staleness check: re-point
+  `--sha` at a newer commit and any drifted reference shows up as an error.
+
+### marked (optional)
+
+- [`marked`](https://github.com/markedjs/marked) renders the finished report to
+  `PLATFORM-DEPENDENCY-ANALYSIS.html`. The skill checks for it and skips the
+  HTML step if it is absent; the Markdown report is the deliverable either way.
+
 ## Install locally in Claude Code
 
 Claude Code loads skills from `~/.claude/skills/<skill-name>/`. To install
@@ -236,6 +272,7 @@ layout should look like:
   scripts/
     manifests.sh                 recursive manifest + repository-shape discovery
     scan.sh                      the vendor scan (reads patterns.tsv at runtime)
+    linkify.py                   validate every path:line reference, pin it to a permalink
 ```
 
 Restart Claude Code (or start a new session) so the skill is picked up. No

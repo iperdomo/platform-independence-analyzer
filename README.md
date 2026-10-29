@@ -36,6 +36,7 @@ classifies its severity, and recommends a concrete abstraction.
 - Proprietary LLM/AI SaaS APIs (OpenAI, Anthropic, Gemini, Cohere, Mistral)
   used directly from business code, and hosted AI services well beyond them:
   Replicate, fal.ai, Modal, Deepgram, ElevenLabs, Groq, Fireworks, OpenRouter,
+  Vercel AI Gateway,
   HuggingFace hosted inference, Roboflow, ClearML, Langfuse, ML Kit, Google
   Cloud Speech/Translate/Vision, Azure Cognitive Services, and regional
   providers such as Sarvam, GhanaNLP and Lelapa.
@@ -72,11 +73,10 @@ classifies its severity, and recommends a concrete abstraction.
   and the Expo SDK are open source and never flagged.
 
 Pattern coverage is JavaScript/TypeScript (including React Native), Python,
-Java/Kotlin, Go, .NET/C#, Swift/Objective-C, PHP, Dart/Flutter, Clojure/Scala,
-and CocoaPods/Gradle/pubspec manifests. **Ruby and Rust** manifests are still
-inventoried and judged, but their import shapes are not pattern-matched - the
-audit greps for those vendor names explicitly instead of assuming a silent scan
-means a clean repo.
+Java/Kotlin, Go, .NET/C#, Swift/Objective-C, PHP, Ruby, Rust, Dart/Flutter,
+Clojure/Scala, and CocoaPods/Gradle/pubspec manifests. Vendors no pattern
+knows are judged from the manifests and scanned through `scan.sh --extra`, so a
+silent scan is never taken to mean a clean repo.
 
 ## What it does not flag
 
@@ -86,9 +86,11 @@ means a clean repo.
 - Open mapping stacks - MapLibre, Leaflet, OpenLayers, osmdroid, OSM tiles.
   A repository carrying both a Mapbox adapter and an osmdroid adapter behind
   one interface is demonstrating good architecture, not two couplings.
-- Dual-licensed libraries (iText, JasperReports, Highcharts): an OSI option
-  exists, so they are recorded informationally with a note that a closed-source
-  deployment needs the paid licence.
+- Dual-licensed libraries (iText, JasperReports): an OSI option exists, so
+  they are recorded informationally with a note that a closed-source
+  deployment needs the paid licence. A "free for non-commercial use" licence
+  is not that: Highcharts and Handsontable have no OSI option and are ordinary
+  findings.
 - Services the project self-hosts (Ollama, Asterisk, PostgREST) and free
   open-data APIs (Open-Meteo, Nominatim) - informational only. A token-gated or
   paid API is an ordinary finding.
@@ -113,21 +115,23 @@ finished per-repo reports without re-scanning.
 
 The skill runs in two tiers to keep classification honest:
 
-1. **Tier 1 - Scan (draft).** A cheap mechanical pass inventories manifests,
-   greps for vendor usage, and writes a *draft* report. Every finding gets a
-   stable claim ID (`PDA-001`, `PDA-002`, ...) and is marked `Status:
-   UNVERIFIED`; its severity is tentative (shown with a trailing `?`, e.g.
-   `[High?]`) because it is guessed from file names and paths alone.
-2. **Tier 2 - Verify.** A fresh-context subagent reads each flagged call site,
-   runs the cross-file checks Tier 1 skips (does a file *really* wrap a vendor,
-   or is the SDK imported elsewhere too?), and marks each claim `CONFIRMED`,
-   `ADJUSTED`, or `REJECTED`. The main agent then recomputes the severity table
-   from the verified findings and flips the report header to `Verification:
-   completed`.
+1. **Tier 1 - Scan (draft).** Inventories manifests, runs the bundled
+   scanner, and writes a *draft* report. Every finding heading carries a
+   stable claim ID, a tentative severity and its status on one line:
+   `### [PDA-001] [High?] [UNVERIFIED] ...`. The severity is a guess from file
+   names, paths and the hit itself.
+2. **Tier 2 - Verify.** Exactly one fresh-context subagent reads each flagged
+   call site, runs the cross-file checks Tier 1 skips (does a file *really*
+   wrap a vendor, or is the SDK imported elsewhere too?), and rewrites each
+   heading to `CONFIRMED`, `ADJUSTED: <reason>` or `REJECTED: <reason>`. The
+   main agent then runs `scripts/report.py finalize`, which renders the
+   severity table from the verified headings and marks the header
+   `Verification: completed`, and `report.py check`, which refuses a report
+   with leftover UNVERIFIED findings, placeholders, or counts that do not
+   match.
 
-An intermediate report containing `Status: UNVERIFIED` findings or a
-`Verification: pending` header is a draft, not the finished audit - the skill
-runs Tier 2 and finalizes before presenting results.
+A report with UNVERIFIED findings or a `Verification: pending` header is a
+draft, not the finished audit.
 
 Between the two, Tier 1 triages. On a large codebase most hits come from
 committed third-party trees - a vendored payment SDK, a bundled library
@@ -145,8 +149,9 @@ A single `PLATFORM-DEPENDENCY-ANALYSIS.md` file containing:
   `completed <date>` once verified).
 - Executive summary with a severity count table (Critical / High / Medium /
   Low), computed after verification.
-- One section per finding, each with a claim ID, a `Status:` line, exact
-  `path:line` locations, and a recommended fix.
+- One section per finding, its heading carrying claim ID, severity and
+  verdict, with exact `path:line` locations, a verification note, and a
+  recommended fix.
 - A list of acceptable dependencies (informational).
 - Architecture recommendations.
 - A file index mapping every touched file to vendor, classification, and
@@ -158,7 +163,8 @@ follow-up.
 ## Requirements
 
 Three tools on `PATH`: **ripgrep** for the scan, and **git** + **python3** for
-the permalink pass. Everything else the skill uses is standard shell.
+the report checks and the permalink pass. Everything else the skill uses is
+standard shell.
 
 ### ripgrep (`rg`)
 
@@ -199,20 +205,28 @@ the permalink pass. Everything else the skill uses is standard shell.
     directory holds several repositories.
   - `bash scripts/scan.sh <repo-root>` - the vendor scan: an exact per-group
     HIT SUMMARY, a HITS BY DIRECTORY triage table, then grouped
-    `file:line:match` detail. Large groups print a per-directory *sample* of
-    the detail and say so; the counts are always exact.
+    `file:line:match` detail, sorted so repeated runs are identical. Large
+    groups print a per-directory *sample* of the detail and say so; the counts
+    are always exact. `--extra <file.tsv>` adds groups for vendors the
+    built-in table does not know.
 
   All vendor patterns live in one place, `references/patterns.tsv` (label,
-  ripgrep regex, judgment note). `bash scripts/scan.sh --print-patterns`
-  renders them as ready-to-paste `rg` one-liners, so a script-less run uses the
-  same patterns rather than hand-written ones. Adding a vendor is a one-line
-  change in the TSV.
+  ripgrep regex, judgment note). Adding a vendor is a one-line change in the
+  TSV plus a fixture case for `tests/run.sh`.
 
 ### git and python3
 
-- **`git`** and **`python3` (3.9 or newer)** must be available. They are what
-  `scripts/linkify.py` needs - the last step of the audit, run after the report
-  is verified and before the HTML is rendered:
+- **`git`** and **`python3` (3.9 or newer)** must be available, standard
+  library only. `scripts/report.py` checks the report's structure and renders
+  the severity table:
+
+  ```
+  python3 scripts/report.py check PLATFORM-DEPENDENCY-ANALYSIS.md
+  python3 scripts/report.py finalize PLATFORM-DEPENDENCY-ANALYSIS.md
+  ```
+
+  `scripts/linkify.py` is the last step of the audit, run after the report is
+  verified and before the HTML is rendered:
 
   ```
   python3 scripts/linkify.py PLATFORM-DEPENDENCY-ANALYSIS.md            # validate
@@ -228,10 +242,11 @@ the permalink pass. Everything else the skill uses is standard shell.
   reference next to the source line it resolved to, which is the only way to
   catch a reference that is valid but points at the *wrong* file.
 
-  `git` reads the pinned tree and derives the base URL from the `origin` remote;
-  `python3` needs **no third-party packages** - the script is standard library
-  only. Re-running is a no-op, so it doubles as a staleness check: re-point
+  `git` reads the pinned tree and derives the base URL from the `origin`
+  remote. Re-running is a no-op, so it doubles as a staleness check: re-point
   `--sha` at a newer commit and any drifted reference shows up as an error.
+  `--footnotes` (opt-in, with `--write`) writes `` `path:line` [N] `` in the
+  text and a per-section list of `[N] url` lines instead of inline links.
 
 ### marked (optional)
 
@@ -263,16 +278,21 @@ layout should look like:
   README.md
   LICENSE.md
   references/
-    classification-rules.md      rules R1-R8: scope, roles, severity, acceptable patterns
-    dependency-patterns.md       vendor classes, licence tables, per-language shapes
+    classification-rules.md      rules R1-R8: scope, roles, severity, verdicts, good architecture
+    dependency-patterns.md       per-language shapes, attribution, dated licence tables
     manifest-discovery.md        repository shape, manifest formats, decoys, coverage limits
-    triage-and-noise.md          vendored trees, collisions, large-repo strategy, notebooks
-    abstraction-examples.md      how to abstract, plus real good architecture from the wild
+    triage-and-noise.md          vendored trees, large-repo strategy, notebooks
+    report-template.md           the report's exact shape
+    verifier-prompt.md           the Tier 2 subagent prompt
+    consolidation.md             combining several finished reports
     patterns.tsv                 the single source of truth for every scan pattern
   scripts/
     manifests.sh                 recursive manifest + repository-shape discovery
     scan.sh                      the vendor scan (reads patterns.tsv at runtime)
+    report.py                    check the report, render the severity table
     linkify.py                   validate every path:line reference, pin it to a permalink
+  tests/
+    run.sh                       regression tests for the scripts (bash tests/run.sh)
 ```
 
 Restart Claude Code (or start a new session) so the skill is picked up. No
@@ -303,8 +323,8 @@ $ claude
 ```
 
 Claude will scan manifests, grep for known vendor patterns, and write a draft
-`PLATFORM-DEPENDENCY-ANALYSIS.md` (Tier 1), then spawn a verifier subagent to
-confirm or correct each finding (Tier 2) and finalize the report with a
+`PLATFORM-DEPENDENCY-ANALYSIS.md` (Tier 1), then spawn one verifier subagent
+to confirm or correct each finding (Tier 2) and finalize the report with a
 verified severity table. Review the finished report, decide which findings to
 act on, and then ask Claude to implement the recommended adapters in a
 follow-up turn.

@@ -14,8 +14,8 @@
 # Usage:    scripts/manifests.sh [ROOT_DIR]      (ROOT_DIR defaults to ".")
 #
 # Output sections:
-#   REPO SHAPE       - single repo vs several nested repos (SKILL.md Step 1
-#                      STOPs on the latter), submodule coverage
+#   REPO SHAPE       - single repo vs several nested repos (the audit stops
+#                      on the latter), submodule coverage
 #   MANIFESTS        - every manifest found, with depth and an approximate
 #                      declared-dependency count
 #   DECOY WATCH      - root manifests that declare (almost) nothing while
@@ -242,7 +242,7 @@ if [ "$root_git" = "no" ] && [ "${#NESTED[@]}" -ge 2 ]; then
   echo "This directory is a container of independent repositories, not one repository."
   echo "Merging them into a single report yields meaningless severity counts and File"
   echo "Index. Run this skill once inside each repository above, then consolidate"
-  echo "(SKILL.md 'Consolidating a multi-repository audit')."
+  echo "(references/consolidation.md)."
   shape_rc=2
 else
   echo "VERDICT: single repository (proceed)."
@@ -267,7 +267,7 @@ if [ -f "$ROOT/.gitmodules" ]; then
   if [ "$empty" -gt 0 ]; then
     echo "COVERAGE LIMIT: $empty of ${#SUBPATHS[@]} submodules are empty on disk."
     echo "The audit covers only the checked-out portion of this platform - say so in the"
-    echo "report header (SKILL.md Step 7, 'Coverage limits')."
+    echo "report header ('Coverage limits:')."
   fi
 fi
 echo
@@ -279,8 +279,7 @@ if [ "${#MANIFESTS[@]}" -eq 0 ]; then
   echo "NONE FOUND."
   echo "This repository declares no dependencies in any known manifest format."
   echo "Do NOT report it as dependency-free: derive the candidate list from import"
-  echo "statements instead and say so in the report (SKILL.md Step 2, manifest-less"
-  echo "repositories)."
+  echo "statements instead and say so in the report (manifest-discovery.md D8)."
 else
   printf '%-6s %-7s %-14s %s\n' "depth" "deps~" "format" "path"
   declare -a DEPTHS=() DEPS=() FMTS=() RELS=()
@@ -369,7 +368,7 @@ if [ "${#MANIFESTS[@]}" -gt 1 ]; then
     fi
   done
   echo "Group findings and the File Index by sub-project when more than one is real"
-  echo "(SKILL.md Step 7)."
+  echo "(references/report-template.md)."
   echo
 fi
 

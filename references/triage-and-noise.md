@@ -56,16 +56,12 @@ swapped by changing a manifest line, because there is no manifest line.
 
 ## T3. What the scan excludes, and what that costs
 
-`scripts/scan.sh` prints its exclusion list in the header of every run. It
-covers `.gitignore`d paths plus: `vendor/`, `Pods/`, `*.pbxproj`, `*.orig`,
-`*.rej`, `.expo/`, lock files, `*.md`, committed build output (`dist/`,
-`build/`, `out/`, `*.min.js`, `*.min.css`, `*.bundle.js`), committed
-third-party trees (`third_party/`, `thirdparty/`, `extlibs/`), translation
-catalogs (`locales/`, `*.po`, `*.pot`, `*.mo`, `*.arb`, `*.xlf`), and
-`.ipynb_checkpoints/`.
-
-This list is deliberately the same as SKILL.md Step 1's. Two consequences to
-state honestly in the report when they apply:
+`scripts/scan.sh` prints its exclusion list in the header of every run (the
+list itself lives once, in the script's `EXCLUDES` array): `.gitignore`d
+paths, committed `vendor/` and `Pods/` trees, generated Xcode and Expo
+artifacts, lock files, Markdown, committed build output and minified bundles,
+common third-party directory names, translation catalogs, and notebook
+checkpoints. Two consequences to state in the report when they apply:
 
 - **A vendor whose only trace lives in an excluded path produces no hits.**
   Committed build output is the common case: a tracked `dist/` bundling a
@@ -78,23 +74,15 @@ state honestly in the report when they apply:
 
 ## T4. Known pattern collisions
 
-Expect these; they are not scanner bugs, and Tier 2 should reject them fast.
-
-| Pattern | Collides with | Where seen |
-|---|---|---|
-| `amplitude.` | GLSL shader code (`amplitude` is a wave parameter) | Game engine filter shaders |
-| `mongoose` | The embedded C web server of the same name | Game engine IDE runtime |
-| `segment` | Audio and NLP segmentation code | Speech-to-text repos |
-| `base_url` | Ordinary API-client config and test fixtures | Any REST client |
-| `heap` | The data structure | Anywhere |
-| `replicate` | Database replication (hence the pattern requires `replicate.run`/`.Client`) | Backends |
-| `modal` | UI modals (hence the pattern requires `modal.Function`/`modal.App`) | Frontends |
-| `disqus`, and any vendor name | Icon-name lists (`material-community-icons` ships hundreds of brand names) | Mobile/web apps |
-| `UA-`, `G-`, `GTM-` | Lowercase identifiers under `-i` (hence these are case-pinned with `(?-i:...)`) | Anywhere |
-| Vendor names in prose | Comments, changelogs, docs, allowlists, sample config | Everywhere |
+The table of recurring collisions (`amplitude.` in shaders, `mongoose` the C
+web server, `segment` in audio code, vendor names in icon lists, ...) lives in
+`classification-rules.md` R6, because the verifier is the one that rejects
+them. Expect those hits during triage and do not count them toward the
+aggregation threshold in T5.
 
 When a collision costs more than it earns, tighten the pattern in
-`references/patterns.tsv` rather than teaching the reader to ignore it.
+`references/patterns.tsv` (and add a case to `tests/fixtures/scan/`) rather
+than teaching the reader to ignore it.
 
 ## T5. Large repositories: aggregate findings
 
@@ -115,7 +103,7 @@ one sub-project**, write a single aggregate finding:
 Below that threshold, keep one finding per file - the per-file detail is what
 makes small reports actionable.
 
-Aggregation happens **before** Tier 2, so the verifier sees a small number of
+Aggregation happens before Tier 2, so the verifier sees a small number of
 substantive claims rather than a flood of near-duplicates.
 
 ## T6. Jupyter notebooks
@@ -148,13 +136,13 @@ Two different errors, and a report should be immune to both:
 
 - **Declared but never wired** - a dependency in the manifest with zero source
   references (a dead Azure SDK entry, a Gradle plugin on the classpath that is
-  never applied, a retired App Center dependency). This is **not** a finding:
+  never applied, a retired App Center dependency). This is not a finding:
   it goes under Acceptable Dependencies as a declared-but-unused dependency,
   ideally with a note that it can be deleted.
 - **Wired but never declared** - source or config that reaches a vendor with no
   manifest entry anywhere: `[FIRApp configure]` in an `AppDelegate.m` beside a
   `GoogleService-Info.plist` while the Podfile names no Firebase pod; a raw
-  HTTP call to a vendor endpoint; a git-URL dependency. This **is** a finding,
+  HTTP call to a vendor endpoint; a git-URL dependency. This is a finding,
   and it is the one a manifest-driven audit misses entirely.
 
 Both checks are cheap: for each declared candidate, one grep for source hits;

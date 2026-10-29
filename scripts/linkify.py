@@ -25,6 +25,11 @@ verified against the working tree. Use --allow-dirty if you know better.
 
 Re-running is a no-op, so it doubles as a staleness check: re-point --sha at a
 newer commit and any drifted line number shows up as an error.
+
+--footnotes (opt-in) writes `ref` [N] in the text instead of an inline link,
+with the [N] url list at the end of each section. Numbering is document-wide;
+every reference gets its own number, even a repeated URL. A footnoted
+reference counts as already linked, so re-running stays a no-op either way.
 """
 
 import argparse
@@ -35,8 +40,12 @@ import sys
 from pathlib import Path
 
 CANDIDATE = re.compile(r"`([A-Za-z0-9_.][A-Za-z0-9_/.+-]*:\d+(?:-\d+)?)`")
-SPAN = re.compile(r"(?<!\[)`([^`\n]+)`")
+# A span is already linked when it is the text of an inline link ([`ref`](url))
+# or carries a footnote marker (`ref` [N]); both are left alone.
+SPAN = re.compile(r"(?<!\[)`([^`\n]+)`(?! \[\d+\])")
 FENCE = re.compile(r"^\s*```")
+HEADING = re.compile(r"^#{1,6} ")
+FOOTNOTE = re.compile(r"^\[(\d+)\] https?://")
 
 
 def die(msg):
@@ -87,6 +96,54 @@ def fragment(style, start, end):
     return f"#L{start}-{end}" if style == "gitlab" else f"#L{start}-L{end}"
 
 
+def footnotes(lines, prefix):
+    """Turn [`ref`](url) links under `prefix` into `ref` [N] plus a per-section
+    list of [N] url lines, placed before the section's trailing `---` rule."""
+    link = re.compile(r"\[(`[^`\n]+`)\]\((" + re.escape(prefix) + r"/[^)\s]+)\)")
+    # Continue after any footnotes a previous run wrote, so numbers stay unique.
+    n = max((int(m[1]) for m in map(FOOTNOTE.match, lines) if m), default=0)
+
+    sections, cur, fenced = [], [], False
+    for line in lines:
+        if FENCE.match(line):
+            fenced = not fenced
+        elif not fenced and HEADING.match(line) and cur:
+            sections.append(cur)
+            cur = []
+        cur.append(line)
+    sections.append(cur)
+
+    out = []
+    for sec in sections:
+        notes, body, fenced = [], [], False
+        for line in sec:
+            if FENCE.match(line):
+                fenced = not fenced
+            elif not fenced:
+                def number(m):
+                    nonlocal n
+                    n += 1
+                    notes.append(f"[{n}] {m[2]}")
+                    return f"{m[1]} [{n}]"
+                line = link.sub(number, line)
+            body.append(line)
+        if notes:
+            k = len(body)
+            while k and not body[k - 1].strip():
+                k -= 1
+            if k and body[k - 1].strip() == "---":
+                k -= 1
+                while k and not body[k - 1].strip():
+                    k -= 1
+            block = [""] + [x for note in notes for x in (note, "")]
+            rest = body[k:]
+            while rest and not rest[0].strip():
+                rest = rest[1:]
+            body = body[:k] + block + rest
+        out += body
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Link `path:NN` spans to permalinks, checking each against "
@@ -99,6 +156,9 @@ def main():
     ap.add_argument("--allow-dirty", action="store_true", help="skip the clean-tree check")
     ap.add_argument("--audit", action="store_true", help="print every resolution, then stop")
     ap.add_argument("-w", "--write", action="store_true", help="apply the changes")
+    ap.add_argument("--footnotes", action="store_true",
+                    help="with --write: `ref` [N] in the text and a per-section list of "
+                         "[N] url lines, instead of inline links")
     ap.add_argument("-q", "--quiet", action="store_true", help="suppress the summary")
     args = ap.parse_args()
 
@@ -171,8 +231,8 @@ def main():
             print("\ndry run only; re-run with --write")
         return 0
 
-    # `(?<!\[)` leaves spans that are already links alone, which is what makes
-    # re-running a no-op. Fenced blocks are skipped.
+    # SPAN leaves already-linked spans alone, which is what makes re-running a
+    # no-op. Fenced blocks are skipped.
     for doc, text in texts.items():
         out, fenced = [], False
         for line in text.splitlines():
@@ -182,6 +242,8 @@ def main():
                 line = SPAN.sub(
                     lambda m: f"[`{m[1]}`]({url[m[1]]})" if m[1] in url else m[0], line)
             out.append(line)
+        if args.footnotes:
+            out = footnotes(out, prefix)
         Path(doc).write_text("\n".join(out) + "\n", encoding="utf-8")
         if not args.quiet:
             print(f"wrote {doc}")

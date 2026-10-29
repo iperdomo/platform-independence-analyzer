@@ -4,14 +4,15 @@ The authoritative rulebook for classifying a vendor-dependency hit: what counts
 as a finding, what role a file plays, what severity it earns, and what must not
 be flagged.
 
-**Both tiers of the audit cite this file.** Tier 1 (the mechanical scan) applies
-only the *name/path heuristics* in R2 to produce tentative labels. Tier 2 (the
+Both tiers of the audit cite this file. Tier 1 (the scan) applies only the
+name/path heuristics in R2 to produce tentative labels. Tier 2 (the
 verification pass) applies every rule here in full. A Tier 1 label is never
 final.
 
-This file is self-contained on purpose: a fresh-context verifier should be able
-to work from this document plus `dependency-patterns.md` alone, without reading
-the skill's workflow instructions.
+This file is self-contained on purpose: the fresh-context verifier works from
+this document plus `dependency-patterns.md` alone, without the skill's
+workflow instructions. Anything the verifier needs to judge a finding belongs
+here.
 
 ---
 
@@ -28,7 +29,7 @@ the skill's workflow instructions.
 
 **This audit assesses platform independence (vendor lock-in risk), not
 architectural quality or robustness.** Direct dependencies on OSI-approved
-open-source libraries, modules, or services are **acceptable** and must not be
+open-source libraries, modules, or services are acceptable and must not be
 flagged, even when imported straight from domain code with no abstraction layer.
 Whether such code *should* be abstracted for testability, modularity, or
 clean-architecture reasons is out of scope. A library qualifies if it is
@@ -128,7 +129,7 @@ there is a Violation. `src/services/`, `api/`, `data/`, `repositories/`, or
 
 ### R2a. The adapter test (Tier 2 only)
 
-A file is a *real* adapter only if **both** conditions hold:
+A file is a *real* adapter only if both conditions hold:
 
 - **(a)** it implements an interface or abstract class for that capability, and
 - **(b)** it is the *only* place that vendor SDK is referenced for that
@@ -181,13 +182,54 @@ them is the most common false positive this audit can produce:
 When the layout says adapter and the name says domain, the layout wins - then
 confirm with R2a's sole-referencer check.
 
+### R2c. Good architecture found in the wild
+
+Five real subsystems from the corpus this skill was calibrated against. Every
+one of them looks high-risk to a keyword grep, and every one is the
+abstraction this audit asks for. A report that flags them has failed; report
+them as `[OK]` and name the shape under Acceptable Dependencies. They are also
+the best material for a "Recommended fix": point at a working shape from a
+comparable project.
+
+1. **Provider-plugin subsystem** (PHP learning platform). An abstract
+   `ai/classes/provider.php` port with one plugin directory per vendor:
+   `ai/provider/{openai,anthropic,gemini,azureai,awsbedrock,deepseek,ollama}/`.
+   Seven vendor names make it look like the most locked-in repository in the
+   corpus; it is the least. The `ollama` plugin proves the subsystem already
+   runs against a self-hosted backend.
+2. **Port module with a proprietary and an open adapter** (Kotlin, Android).
+   `maps/` (port: `MapFragment`, `MapFragmentFactory`) beside `google-maps/`
+   and `osmdroid/` adapters that nothing else imports. R2a holds at module
+   granularity, and the open adapter shows the swap has already been done once.
+   Vendor hits inside `google-maps/` are adapter-internal, not findings.
+3. **api / impl sibling modules with build-variant gating** (Kotlin, Android).
+   `pushproviders/api/` (port), `pushproviders/firebase/` (gplay flavour),
+   `pushproviders/unifiedpush/` (fdroid flavour), `pushproviders/test/`. R2b
+   and R3's build-variant modifier apply together; say which flavour ships to
+   users.
+4. **Env-switched storage factory** (Node). One composition-root module,
+   `src/configs/cloud-service.js`, builds `cloudClient` from
+   `CLOUD_STORAGE_PROVIDER` (aws, gcp, azure, oci) and an optional `endpoint`
+   (self-hosted S3-compatible). Domain code imports `cloudClient`, never a
+   cloud SDK. The cheapest abstraction in this list.
+5. **Injected RPC provider** (TypeScript, blockchain).
+   `verifyDocument(provider: ethers.Provider, id)` takes the provider as an
+   argument and the RPC URL is configuration, so Infura or Alchemy is a config
+   value. A hardcoded `https://mainnet.infura.io/v3/<key>` in a use case is the
+   contrasting finding.
+
+What they share: one place names the vendor; the port is named after the
+capability, not the vendor; and a second implementation exists, often an open
+or self-hosted one - the strongest evidence that an abstraction is real. Say so
+in the report when you see it.
+
 ---
 
 ## R3. Severity
 
-Pick the severity that matches the role from R2. In Tier 1, mark it as a guess
-by appending a `?` in the finding heading (e.g. `[High?]`); Tier 2 removes the
-`?` when it confirms, or changes the level when it adjusts.
+Pick the severity that matches the role from R2. In Tier 1 it is a guess,
+marked with a `?` in the finding heading (`[High?] [UNVERIFIED]`); Tier 2
+removes the `?` when it confirms, or changes the level when it adjusts.
 
 - **Critical**: vendor SDK called from the domain layer with no interface
   anywhere; multiple call sites.
@@ -207,7 +249,7 @@ interface exists: the project already demonstrates it can build and ship
 without that vendor. A flat grep sees no difference between a flavour-gated
 import and an unconditional one, so check the build files.
 
-Lower the severity by one level when the vendor appears **only** in
+Lower the severity by one level when the vendor appears only in
 non-default variant sources (`src/gplay/`, `src/<flavor>/`, a
 `<flavor>Implementation` dependency, a variant-gated plugin), and say which
 variant in the finding. Do not lower it when the gated variant is the one
@@ -249,13 +291,13 @@ finding.
   | `openai` and OpenAI-compatible SDKs | vLLM, Ollama, LiteLLM, LocalAI, TGI |
   | `@sentry/*`, `sentry-sdk` | a self-hosted Sentry (check the DSN host) |
   | `posthog-*`, Matomo | a self-hosted instance |
-  | `@supabase/*` | a self-hosted Supabase, or plain PostgREST + Postgres - a repo using the Supabase client purely as a PostgREST client against its own database is NOT locked into Supabase, and calling it "BaaS lock-in" from the package name alone is a false positive |
+  | `@supabase/*` | a self-hosted Supabase, or plain PostgREST + Postgres - a repo using the Supabase client purely as a PostgREST client against its own database is not locked into Supabase, and calling it "BaaS lock-in" from the package name alone is a false positive |
   | `elasticsearch` / `@elastic/*` | a self-hosted cluster, or OpenSearch |
   | `boto3` / `@aws-sdk/client-s3` | MinIO, Ceph, Garage |
   | `langfuse`, `livekit`, `pyvespa`, `clearml` | their self-hosted open-core servers |
 
   Resolve the endpoint before applying this (R5 lists where to look). The
-  exception does **not** apply when:
+  exception does not apply when:
   - there is no endpoint override at all (the SDK hits the vendor's default
     hosted service - a finding);
   - the endpoint points at another proprietary SaaS (Azure OpenAI, Groq,
@@ -322,21 +364,22 @@ finding.**
 
 ---
 
-## R4a. Verdict vocabulary: REJECTED vs ADJUSTED [OK]
+## R4a. Verdict vocabulary
 
-These two both mean "not a violation" and both stay out of the severity counts,
-but they say different things and must not be used interchangeably:
+A verdict lives in the finding heading, next to the severity:
 
-- **REJECTED** - the claim was *wrong*. The cited lines are not real vendor
-  usage at all: a comment, a doc, a fixture string, a stale TODO. Heading
-  becomes `[N/A]`.
-- **ADJUSTED [OK]** - the usage is *real* but *acceptable* under R4. A genuine
-  adapter that passes R2a, an S3-only boto3 call, a `base_url` resolving to a
-  self-hosted runtime. Heading becomes `[OK]`.
+| Heading | Meaning |
+|---|---|
+| `[High] [CONFIRMED]` | The claim holds as drafted (any real severity). |
+| `[Medium] [ADJUSTED: <reason>]` | Real coupling; severity or role changed. |
+| `[OK] [ADJUSTED: <reason>]` | Real usage, but acceptable under R4: a genuine adapter that passes R2a, an S3-only boto3 call, a `base_url` resolving to a self-hosted runtime. |
+| `[N/A] [REJECTED: <reason>]` | The claim was wrong: the cited lines are not vendor usage at all (a comment, a doc, a fixture string, a stale TODO). |
 
-A real adapter is `ADJUSTED ... [OK]`, never `REJECTED` - the Stripe SDK import
-is genuinely there, and the File Index should show it as a checked-and-cleared
-adapter rather than implying Tier 1 hallucinated it.
+`[OK]` and `[N/A]` both stay out of the severity counts, but they say
+different things. A real adapter is `[OK] [ADJUSTED: ...]`, never `REJECTED` -
+the Stripe SDK import is genuinely there, and the File Index should show it as
+a checked-and-cleared adapter rather than implying Tier 1 hallucinated it.
+Reasons are short and contain no square brackets.
 
 ---
 
@@ -375,25 +418,25 @@ off or charge for it".
 ## R5. Resolving a service endpoint
 
 R4's self-hosted exception is only as good as the endpoint you can actually
-resolve. This rule applies to **any** client of a hostable service - an LLM
+resolve. This rule applies to any client of a hostable service - an LLM
 runtime, Sentry, PostHog, Supabase/PostgREST, Elasticsearch, S3 - not just LLM
 SDKs.
 
 When a `base_url` / `baseURL` / `endpoint` / DSN reads from an environment
-variable, the endpoint is **not** knowable from that line. Chase the actual
+variable, the endpoint is not knowable from that line. Chase the actual
 value before deciding, stopping at the first hit:
 
 1. A literal default in the call itself (`os.environ.get(..., "http://...")`,
    `process.env.X ?? "http://..."`).
 2. `.env.example`, `.env.sample`, `.env.defaults`, `.env.template` - a variable
-   listed there with an **empty** value resolves nothing, keep looking.
+   listed there with an empty value resolves nothing, keep looking.
 3. `docker-compose*.yml` (an ollama/vllm/litellm service next to the app is
    strong evidence), Helm `values.yaml`, k8s manifests, Terraform.
 4. Config modules with a fallback constant, CI workflow env blocks, README or
    deployment docs.
 
-If the value resolves, judge it under R4. If it does **not** resolve, the
-finding survives as `ADJUSTED (endpoint indeterminate)` at Low or Medium with
+If the value resolves, judge it under R4. If it does not resolve, the
+finding survives as `[ADJUSTED: endpoint indeterminate]` at Low or Medium with
 the ambiguity spelled out - never `REJECTED`. An unresolvable variable is
 missing evidence, not evidence of an open endpoint.
 
@@ -425,8 +468,8 @@ Do not force this into a single verdict. Instead:
    doing an adapter's job: the swap cost is a row, not a rewrite. That is a
    severity reduction (often to Low, sometimes `[OK]`), even though several
    proprietary providers are reachable.
-4. Verdict wording: `ADJUSTED (endpoint resolved at runtime - provider
-   registry)`, with the per-leg judgment in the verification note.
+4. Verdict wording: `[ADJUSTED: endpoint resolved at runtime - provider
+   registry]`, with the per-leg judgment in the verification note.
 
 The distinction that matters: an unresolvable *variable* is missing evidence
 (keep the finding, Low/Medium, ambiguity noted); a *registry* is present
@@ -450,6 +493,24 @@ is not the first one:
 
 Cited lines that turn out to be a comment, a doc, a test fixture string, or
 otherwise not real usage are false positives.
+
+**Known pattern collisions.** These recur; they are not scanner bugs, and they
+should be rejected quickly:
+
+| Pattern | Collides with | Where seen |
+|---|---|---|
+| `amplitude.` | GLSL shader code (`amplitude` is a wave parameter) | Game engine filter shaders |
+| `mongoose` | The embedded C web server of the same name | Game engine IDE runtime |
+| `mongoid` | A comment in a Devise initializer listing ORMs | Rails apps |
+| `segment` | Audio and NLP segmentation code | Speech-to-text repos |
+| `base_url` | Ordinary API-client config and test fixtures | Any REST client |
+| `heap` | The data structure | Anywhere |
+| `disqus`, and any vendor name | Icon-name lists (`material-community-icons` ships hundreds of brand names) | Mobile/web apps |
+| Vendor names in prose | Comments, changelogs, docs, allowlists, sample config, UI strings | Everywhere |
+
+The patterns already guard against `replicate` (database replication),
+`modal` (UI modals) and lowercase look-alikes of `UA-`/`G-`/`GTM-` tracking
+IDs, so a hit on those is worth reading.
 
 ---
 

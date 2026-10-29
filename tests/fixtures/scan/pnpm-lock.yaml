@@ -1,0 +1,6 @@
+lockfileVersion: '9.0'
+packages:
+  '@ai-sdk/gateway@4.0.12':
+    resolution: {integrity: sha512-x}
+  stripe@14.0.0:
+    resolution: {integrity: sha512-y}

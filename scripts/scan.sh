@@ -13,19 +13,23 @@
 # TSV - do not paste patterns into this file or into the reference docs.
 #
 # Language coverage: JS/TS (incl. React Native), Python, Java/Kotlin, Go,
-# .NET/C#, Swift/Objective-C, PHP, Dart/Flutter, Clojure/Scala, and
-# CocoaPods/Gradle/pubspec manifests. Ruby and Rust import shapes are NOT
-# covered - no output for those ecosystems means nothing was searched for, not
-# that the repo is clean. See SKILL.md Step 3.
+# .NET/C#, Swift/Objective-C, PHP, Ruby, Rust, Dart/Flutter, Clojure/Scala, and
+# CocoaPods/Gradle/pubspec manifests.
 #
 # Every pattern runs under `rg -in`, so case carries no signal: `import firebase`
 # matches Swift `import FirebaseCore`, Python `import firebase_admin`, and JS
 # `import firebase from` alike. Do not write patterns that depend on case.
 #
 # Usage:
-#   scripts/scan.sh [ROOT_DIR]        scan ROOT_DIR (defaults to ".")
-#   scripts/scan.sh --print-patterns  print the rg one-liners and exit
-#   PIA_PATTERNS=<file> scripts/scan.sh ...   use a different pattern table
+#   scripts/scan.sh [--extra FILE] [ROOT_DIR]   scan ROOT_DIR (defaults to ".")
+#   scripts/scan.sh --print-patterns            print rg one-liners and exit
+#   PIA_PATTERNS=<file> scripts/scan.sh ...     use a different pattern table
+#
+# --extra FILE adds groups in the same LABEL<TAB>PATTERN<TAB>NOTE format as
+# patterns.tsv (an empty file is fine). Use it for the residual candidates
+# SKILL.md Step 2 judged proprietary: they then run under the same exclusions
+# and appear in the same HIT SUMMARY as the built-in groups. --print-patterns
+# is a debugging aid.
 #
 # Output shape: a per-vendor HIT SUMMARY, then a HITS BY DIRECTORY triage table,
 # then the grouped detail. The counts are always exact. Large groups print a
@@ -35,11 +39,9 @@
 # incomplete. Redirect to a file and read that rather than piping to a tool with
 # an output cap.
 #
-# Exit codes: 0 = ran (with or without hits); 2 = pattern table missing or empty;
-# 127 = ripgrep not installed.
-# ripgrep is a hard requirement - on 127 the audit stops and the user installs
-# rg. Do not substitute another search path: findings must come from this exact
-# reproducible scan.
+# Exit codes: 0 = ran (with or without hits); 2 = pattern table missing or
+# empty, or bad arguments; 127 = ripgrep not installed (the audit stops; the
+# findings must come from this exact, reproducible scan).
 #
 # ripgrep respects .gitignore by default, so node_modules/dist/build/.venv/
 # target/.next/coverage are already skipped when gitignored. The --glob
@@ -62,10 +64,19 @@ MAX_DETAIL_PER_GROUP="${PIA_MAX_DETAIL:-1500}"
 MAX_DETAIL_PER_DIR="${PIA_MAX_DETAIL_PER_DIR:-10}"
 
 PRINT_ONLY=0
-if [ "${1:-}" = "--print-patterns" ]; then
-  PRINT_ONLY=1
-  shift
-fi
+EXTRA_FILE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --print-patterns) PRINT_ONLY=1; shift ;;
+    --extra)
+      [ $# -ge 2 ] || { echo "error: --extra needs a file argument" >&2; exit 2; }
+      EXTRA_FILE="$2"; shift 2 ;;
+    --extra=*) EXTRA_FILE="${1#--extra=}"; shift ;;
+    --) shift; break ;;
+    -*) echo "error: unknown option: $1" >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
 
 ROOT="${1:-.}"
 
@@ -75,52 +86,47 @@ if ! command -v rg >/dev/null 2>&1; then
   exit 127
 fi
 
-if [ ! -r "$PATTERNS_FILE" ]; then
-  echo "error: pattern table not found or unreadable: $PATTERNS_FILE" >&2
-  echo "it ships with the skill at references/patterns.tsv; set PIA_PATTERNS to override" >&2
-  exit 2
-fi
-
-# Load the pattern table: LABEL <TAB> PATTERN <TAB> NOTE, '#' comments ignored.
+# Load a pattern table: LABEL <TAB> PATTERN <TAB> NOTE, '#' comments ignored.
 LABELS=()
 PATTERNS=()
 NOTES=()
-while IFS=$'\t' read -r label pat note; do
-  case "$label" in ''|'#'*) continue ;; esac
-  [ -z "$pat" ] && continue
-  LABELS+=("$label")
-  PATTERNS+=("$pat")
-  NOTES+=("${note:-}")
-done < "$PATTERNS_FILE"
+load_table() { # $1 = file, $2 = "required" if it must hold at least one group
+  if [ ! -r "$1" ]; then
+    echo "error: pattern table not found or unreadable: $1" >&2
+    echo "the built-in table ships at references/patterns.tsv; set PIA_PATTERNS to override" >&2
+    exit 2
+  fi
+  local before="${#LABELS[@]}" label pat note
+  while IFS=$'\t' read -r label pat note; do
+    case "$label" in ''|'#'*) continue ;; esac
+    [ -z "$pat" ] && continue
+    LABELS+=("$label")
+    PATTERNS+=("$pat")
+    NOTES+=("${note:-}")
+  done < "$1"
+  if [ "${2:-}" = "required" ] && [ "${#LABELS[@]}" -eq "$before" ]; then
+    echo "error: no patterns loaded from $1" >&2
+    exit 2
+  fi
+}
+load_table "$PATTERNS_FILE" required
+[ -n "$EXTRA_FILE" ] && load_table "$EXTRA_FILE"   # may be empty: no residual candidates
 
-if [ "${#LABELS[@]}" -eq 0 ]; then
-  echo "error: no patterns loaded from $PATTERNS_FILE" >&2
-  exit 2
-fi
-
-if [ "$PRINT_ONLY" -eq 1 ]; then
-  echo "# rg one-liners generated from $(basename "$PATTERNS_FILE") (${#LABELS[@]} groups)"
-  echo "# Run from the repository root. Add the exclusions this script uses:"
-  echo "#   --glob '!**/vendor/**' --glob '!**/Pods/**' --glob '!**/*.pbxproj' \\"
-  echo "#   --glob '!**/.expo/**' --glob '!**/*.lock' --glob '!**/package-lock.json' \\"
-  echo "#   --glob '!**/*.md' --glob '!**/PLATFORM-DEPENDENCY-ANALYSIS.*'"
-  for i in "${!LABELS[@]}"; do
-    echo
-    echo "# ${LABELS[$i]}"
-    [ -n "${NOTES[$i]}" ] && echo "#   note: ${NOTES[$i]}"
-    esc="${PATTERNS[$i]//\'/\'\\\'\'}"
-    printf "rg -in '%s'\n" "$esc"
-  done
-  exit 0
-fi
-
+# The ONE list of scan exclusions. The header of every run and the
+# --print-patterns output are generated from it, so docs point here instead of
+# repeating it.
 EXCLUDES=(
   --glob '!**/vendor/**'
   --glob '!**/Pods/**'          # CocoaPods deps, committed in some iOS/RN repos
   --glob '!**/*.pbxproj'        # generated Xcode project; mirrors the Podfile
   --glob '!**/.expo/**'         # generated Expo cache
-  --glob '!**/*.lock'
+  --glob '!**/*.lock'           # lock files: transitive noise; Step 1 reads them as evidence
   --glob '!**/package-lock.json'
+  --glob '!**/npm-shrinkwrap.json'
+  --glob '!**/pnpm-lock.yaml'
+  --glob '!**/go.sum'
+  --glob '!**/packages.lock.json'
+  --glob '!**/Package.resolved'
   --glob '!**/*.md'
   --glob '!**/*.orig'           # merge/patch leftovers restate whole files
   --glob '!**/*.rej'
@@ -150,9 +156,32 @@ EXCLUDES=(
   --glob '!**/.ipynb_checkpoints/**'
 )
 
-# Printed with the results so a reader knows what silence means. Keep in sync
-# with EXCLUDES above and with SKILL.md Step 1.
-EXCLUDES_HUMAN="vendor/ Pods/ *.pbxproj *.orig *.rej .expo/ lock files *.md dist/ build/ out/ *.min.js *.min.css *.bundle.js third_party/ thirdparty/ extlibs/ locales/ *.po *.pot *.mo *.arb *.xlf .ipynb_checkpoints/ (plus everything .gitignore excludes)"
+# Human-readable form of EXCLUDES ('!**/vendor/**' -> 'vendor/').
+EXCLUDES_HUMAN=""
+for g in "${EXCLUDES[@]}"; do
+  [ "$g" = "--glob" ] && continue
+  g="${g#!}"; g="${g#'**/'}"; g="${g%'**'}"
+  EXCLUDES_HUMAN="$EXCLUDES_HUMAN $g"
+done
+EXCLUDES_HUMAN="${EXCLUDES_HUMAN# } (plus everything .gitignore excludes)"
+
+if [ "$PRINT_ONLY" -eq 1 ]; then
+  echo "# rg one-liners generated from the pattern table (${#LABELS[@]} groups)."
+  echo "# Run from the repository root, with the scanner's exclusions:"
+  printf '#  '
+  for g in "${EXCLUDES[@]}"; do
+    if [ "$g" = "--glob" ]; then printf ' --glob'; else printf " '%s'" "$g"; fi
+  done
+  echo
+  for i in "${!LABELS[@]}"; do
+    echo
+    echo "# ${LABELS[$i]}"
+    [ -n "${NOTES[$i]}" ] && echo "#   note: ${NOTES[$i]}"
+    esc="${PATTERNS[$i]//\'/\'\\\'\'}"
+    printf "rg -in '%s'\n" "$esc"
+  done
+  exit 0
+fi
 
 # Vendor config files whose PRESENCE is the evidence: their contents may name no
 # vendor at all (eas.json, an app.config.js), so a content grep misses them. A
@@ -166,7 +195,7 @@ CONFIG_GLOBS=(
 
 echo "# platform-independence scan"
 echo "# root: $ROOT"
-echo "# patterns: $PATTERNS_FILE (${#LABELS[@]} groups)"
+echo "# patterns: $PATTERNS_FILE${EXTRA_FILE:+ + $EXTRA_FILE} (${#LABELS[@]} groups)"
 echo "# excluded: $EXCLUDES_HUMAN"
 echo "# A vendor whose only trace is in an excluded path produces NO hits here."
 echo
@@ -179,6 +208,22 @@ if [ -n "$cfg" ]; then
   echo "# A GoogleService-Info.plist or google-services.json proves Firebase is wired"
   echo "# even when no manifest declares it. app.config.js is executable and overrides"
   echo "# app.json - read it. eas.json means EAS Build/Update/Submit (proprietary)."
+  echo
+fi
+
+# Every distinct URL host in scanned files. A hardcoded API host is often the
+# only trace of a vendor no pattern knows and no manifest declares.
+hosts="$(rg -oi --no-filename --no-line-number "${EXCLUDES[@]}" \
+          -e 'https?://[a-z0-9-]+(\.[a-z0-9-]+)+' -- "$ROOT" 2>/dev/null \
+        | sed -E 's|^[A-Za-z]+://||' | tr 'A-Z' 'a-z' \
+        | grep -vE '^(localhost|127\.|0\.0\.0\.0|([a-z0-9-]+\.)*example\.(com|org|net)$|www\.w3\.org$|schemas?\.)' \
+        | LC_ALL=C sort | uniq -c | LC_ALL=C sort -k1,1rn -k2,2)"
+if [ -n "$hosts" ]; then
+  nhosts="$(printf '%s\n' "$hosts" | grep -c '')"
+  echo "== URL HOSTS IN SCANNED FILES ($nhosts distinct, top 40 by count) =="
+  printf '%s\n' "$hosts" | head -40
+  echo "# A host no vendor group below explains may be a proprietary API reached"
+  echo "# without an SDK: judge it in Step 2 and scan it with --extra."
   echo
 fi
 
@@ -198,6 +243,10 @@ for i in "${!LABELS[@]}"; do
   case "$rc" in
     0)
       found_any=1
+      # rg searches in parallel and prints in completion order. Sort by path,
+      # then line number, so the detail and the per-directory sample below are
+      # identical from run to run.
+      out="$(printf '%s\n' "$out" | LC_ALL=C sort -t: -k1,1 -k2,2n)"
       RESULTS[$i]="$out"
       COUNTS[$i]="$(printf '%s\n' "$out" | grep -c '')"
       total=$((total + COUNTS[i]))
@@ -258,13 +307,11 @@ if [ "$found_any" -eq 1 ]; then
       printf '== %s ==\n' "${LABELS[$i]}"
       [ -n "${NOTES[$i]}" ] && printf '# note: %s\n' "${NOTES[$i]}"
       if [ "$MAX_DETAIL_PER_GROUP" -gt 0 ] && [ "${COUNTS[$i]}" -gt "$MAX_DETAIL_PER_GROUP" ]; then
-        # Quota by the first three path components, not by the immediate parent:
-        # a vendored SDK spreads over hundreds of leaf directories and would
-        # otherwise consume the whole cap before any first-party hit is printed.
-        # Sample, do not truncate: up to N lines per directory (keyed on the
-        # first three path components, because a vendored SDK spreads over
-        # hundreds of leaf directories and would otherwise crowd out every
-        # first-party hit). Every directory with hits stays represented.
+        # Sample, do not truncate: up to N lines per directory, keyed on the
+        # first three path components rather than the immediate parent - a
+        # vendored SDK spreads over hundreds of leaf directories and would
+        # otherwise crowd out every first-party hit. Every directory with hits
+        # stays represented.
         shown="$(printf '%s\n' "${RESULTS[$i]}" | awk -F: -v perdir="$MAX_DETAIL_PER_DIR" \
           -v root="${ROOT%/}/" \
           '{p=$1; if (index(p,root)==1) p=substr(p,length(root)+1);

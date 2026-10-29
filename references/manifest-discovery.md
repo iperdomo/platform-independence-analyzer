@@ -14,17 +14,17 @@ output means, what it cannot decide for you, and how to work without it.
 
 ## D1. Repository shape - one repo per run
 
-**This skill audits ONE repository per run.** A directory holding several
+This skill audits one repository per run. A directory holding several
 independent repositories is audited by running the skill once inside each of
-them and then consolidating the finished reports (SKILL.md, "Consolidating a
-multi-repository audit").
+them and then consolidating the finished reports
+(`references/consolidation.md`).
 
 Decide the shape before scanning:
 
 | Observation | Meaning | Action |
 |---|---|---|
 | `.git` at the root | One repository | Proceed |
-| No root `.git`, two or more child directories each with `.git` | Container of repositories | **STOP.** List them, tell the user to run the skill inside each |
+| No root `.git`, two or more child directories each with `.git` | Container of repositories | Stop. List them, tell the user to run the skill inside each |
 | Root `.git` plus nested `.git` entries | Submodules or vendored checkouts | Proceed, but report coverage (D2) |
 | No `.git` anywhere | Exported source tree | Proceed; say in the report that no VCS metadata was available |
 
@@ -69,8 +69,7 @@ Representative shapes:
 - Maven project with a single 2465-line `pom.xml` at depth 2 and no root pom.
 
 Run `scripts/manifests.sh <root>` and read every manifest it lists, not just
-the shallow ones. Without the script: `rg --files` with the globs in D4 and the
-exclusions in D6.
+the shallow ones.
 
 ## D4. Manifest formats to look for
 
@@ -79,7 +78,7 @@ Beyond the obvious `package.json` / `pyproject.toml` / `pom.xml` /
 
 | Ecosystem | Formats | Gotchas |
 |---|---|---|
-| Python | `requirements.txt`, `requirements.in`, `requirements-*.txt`, `requirements_*.txt`, `Pipfile`, `setup.py` / `setup.cfg` (`install_requires`), conda `environment.yml` / `environment.yaml` | `setup.py` deps can be conditional on env vars; a conda `environment.yml` is sometimes the ONLY manifest; `pyproject.toml` is often tool config only |
+| Python | `requirements.txt`, `requirements.in`, `requirements-*.txt`, `requirements_*.txt`, `Pipfile`, `setup.py` / `setup.cfg` (`install_requires`), conda `environment.yml` / `environment.yaml` | `setup.py` deps can be conditional on env vars; a conda `environment.yml` is sometimes the only manifest; `pyproject.toml` is often tool config only |
 | .NET | `*.csproj` / `*.fsproj` / `*.vbproj` `PackageReference`, `packages.config`, `Directory.Build.props`, `Directory.Packages.props`, `*.sln` | A repo can have NO root manifest and only a `.sln`; three declaration styles routinely coexist in one repo |
 | JVM | `build.gradle`, `build.gradle.kts`, `settings.gradle(.kts)`, `gradle/libs.versions.toml`, child `pom.xml` files | Version catalogs and dynamic module discovery hide coordinates (see `dependency-patterns.md`); EXCLUDE Maven archetype template poms under `archetype-resources/` |
 | iOS / Swift | `Podfile` (any depth), `Package.swift`, `Package.resolved`, XcodeGen `project.yml`, `XCRemoteSwiftPackageReference` in `project.pbxproj` | `Package.swift` is sometimes CI tooling only while app deps live in `project.yml`; Podfiles are not always at `ios/Podfile` |
@@ -113,10 +112,10 @@ could not.
 
 ## D6. What to exclude while discovering
 
-`node_modules`, `vendor`, `Pods`, `dist`, `build`, `target`, `.venv`,
-`__pycache__`, `coverage`, `.next`, `.cache`, `.expo`, `third_party`,
-`thirdparty`, `extlibs`, and Maven archetype template trees
-(`**/archetype-resources/**`, `**/maven-archetype/**`).
+`manifests.sh` skips dependency, build and cache directories, committed
+third-party trees, and Maven archetype *templates* (`archetype-resources/`),
+whose poms describe generated projects rather than this one. The list is the
+`EXCLUDES` array at the top of the script.
 
 A committed third-party tree carries its own manifests - a vendored PHP SDK
 under `htdocs/includes/<vendor>/` or a bundled JS library each ships one. Those

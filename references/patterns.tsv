@@ -27,7 +27,7 @@ MongoDB	\bMongoClient\b|require\(['"](mongodb|mongoose)|\bmongoose\b|\bpymongo\b
 Twilio / SendGrid	\btwilio\b|require\(['"](twilio|@sendgrid)|@sendgrid|\bsendgrid\b|use Twilio\\|Twilio\\Rest|SendGrid\\Mail|new \\SendGrid	
 AWS	aws-sdk|\bboto3\b|@aws-sdk|aws-amplify|@aws-amplify/|com\.amazonaws|software\.amazon\.awssdk|\bAWSSDK\b|using Amazon\.|use Aws\\|Aws\\S3|com\.cognitect\.aws|package:aws_|\baws::|aws_sdk_[a-z]|\baws_config\b	S3-only usage is acceptable (R4); every other AWS service stays in scope
 Azure	@azure/|azure\.identity|azure\.storage|azure-sdk-for-go|using Azure\.|Microsoft\.Azure\.|MicrosoftAzure\\Storage|package:azure_|\bazure::|azure[-_](storage|identity|core|messaging|security)	
-Google Cloud	@google-cloud/|google\.cloud\.|cloud\.google\.com/go|use Google\\(Client|Service|Cloud|Auth)|\bGoogle_Client\b|\bGoogle_Service_|com\.google\.cloud/|google[-_]cloud[-_][a-z]|require ['\"]google/cloud|\bgoogle::(cloud|apis)\b	
+Google Cloud	@google-cloud/|google\.cloud\.|from google\.cloud import|\bimport google\.cloud\b|cloud\.google\.com/go|use Google\\(Client|Service|Cloud|Auth)|\bGoogle_Client\b|\bGoogle_Service_|com\.google\.cloud/|google[-_]cloud[-_][a-z]|require ['\"]google/cloud|\bgoogle::(cloud|apis)\b	
 Algolia	algoliasearch|@algolia/|\balgolia::	
 Auth0 / Okta	\bauth0\b|@auth0/|@okta/|okta-auth|use Auth0\\|package:auth0_flutter	
 Product analytics	segment\.io|\bmixpanel\b|\bamplitude\.|\bposthog\b|\bMixpanel::|package:mixpanel|package:amplitude|posthog_flutter|segment::analytics|analytics-ruby	PostHog and Matomo are self-hostable - resolve the endpoint before judging (R4)

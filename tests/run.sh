@@ -32,11 +32,12 @@ out="$(cd "$FX" && bash "$S/scan.sh" scan)"
 expect_eq "scan: hit summary (exclusions and collision guards hold)" \
 "     4  Stripe
      2  AWS
+     1  Google Cloud
      2  OpenAI
      3  Vercel AI Gateway
      1  AI/ML hosted services (beyond the big-5 LLM vendors)
      1  Web platform services (captcha, analytics tags, widgets)
-    13  TOTAL hits across 6 vendor groups" "$(printf '%s\n' "$out" | summary)"
+    14  TOTAL hits across 7 vendor groups" "$(printf '%s\n' "$out" | summary)"
 
 for path in vendor/ dist/ locales/ README.md web/ui/modal.js pnpm-lock.yaml \
             "provider.ts:7:" "provider.ts:8:"; do

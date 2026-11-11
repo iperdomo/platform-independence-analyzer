@@ -158,6 +158,25 @@ done
 cmp -s "$R/foot.md" "$R/inline2.md" && ok "linkify: inline then --footnotes equals direct --footnotes" \
   || bad "linkify: inline then --footnotes equals direct --footnotes"
 
+# Next.js route paths: groups, dynamic segments and spaces must be validated,
+# linked, and percent-encoded so the Markdown link destination stays intact.
+N="$TMP/next"
+mkdir -p "$N/app/(auth)/[locale]/(form filler)/[[...slug]]"
+printf 'export default 1\n' > "$N/app/(auth)/[locale]/(form filler)/[[...slug]]/page.tsx"
+git init -q "$N"; gitc -C "$N" add .; gitc -C "$N" commit -qm init
+git -C "$N" remote add origin git@github.com:acme/demo.git
+printf -- '- `app/(auth)/[locale]/(form filler)/[[...slug]]/page.tsx:1` call\n' > "$N/R.md"
+printf -- '- `app/(auth)/[locale]/(form filler)/[[...slug]]/page.tsx:2` past the end\n' > "$N/range.md"
+"${L[@]}" "$N/range.md" >/dev/null 2>&1
+expect_eq "linkify: an out-of-range Next.js route reference fails" "1" "$?"
+"${L[@]}" --write "$N/R.md"
+grep -qF '](https://github.com/acme/demo/blob/'"$(git -C "$N" rev-parse HEAD)"'/app/%28auth%29/%5Blocale%5D/%28form%20filler%29/%5B%5B...slug%5D%5D/page.tsx#L1)' "$N/R.md" \
+  && ok "linkify: Next.js route path is linked and percent-encoded" \
+  || bad "linkify: Next.js route path is linked and percent-encoded" "$(cat "$N/R.md")"
+cp "$N/R.md" "$N/R2.md"; "${L[@]}" --write "$N/R2.md"
+cmp -s "$N/R.md" "$N/R2.md" && ok "linkify: re-run on a Next.js route link is a no-op" \
+  || bad "linkify: re-run on a Next.js route link is a no-op"
+
 # ----------------------------------------------------------------- report.py
 RP=(python3 "$S/report.py")
 for f in draft verified final; do

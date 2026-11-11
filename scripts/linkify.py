@@ -38,8 +38,11 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
-CANDIDATE = re.compile(r"`([A-Za-z0-9_.][A-Za-z0-9_/.+-]*:\d+(?:-\d+)?)`")
+# Parentheses, brackets and spaces occur in real paths: Next.js route groups
+# and dynamic segments (`app/(auth)/[locale]/(form filler)/page.tsx`).
+CANDIDATE = re.compile(r"`([A-Za-z0-9_.][A-Za-z0-9_/.+()\[\] -]*:\d+(?:-\d+)?)`")
 # A span is already linked when it is the text of an inline link ([`ref`](url))
 # or carries a footnote marker (`ref` [N]); both are left alone.
 SPAN = re.compile(r"(?<!\[)`([^`\n]+)`(?! \[\d+\])")
@@ -206,7 +209,9 @@ def main():
             errors.append(f"{ref}: points at a BLANK line")
         else:
             frag = fragment(style, start, end)
-            url[ref] = f"{prefix}/{sha}/{path}{frag}"
+            # Percent-encode the path: a raw space ends a Markdown link
+            # destination, and raw parentheses can end it early too.
+            url[ref] = f"{prefix}/{sha}/{quote(path, safe='/')}{frag}"
             audit.append(f"{ref:<46} -> {path + frag:<44} | {lines[start - 1].strip()[:72]}")
 
     if not args.quiet:

@@ -222,7 +222,7 @@ fi
 # only trace of a vendor no pattern knows and no manifest declares.
 hosts="$(rg -oi --no-filename --no-line-number "${EXCLUDES[@]}" \
           -e 'https?://[a-z0-9-]+(\.[a-z0-9-]+)+' -- "$ROOT" 2>/dev/null \
-        | sed -E 's|^[A-Za-z]+://||' | tr 'A-Z' 'a-z' \
+        | sed -E 's|^[A-Za-z]+://||' | tr '[:upper:]' '[:lower:]' \
         | grep -vE '^(localhost|127\.|0\.0\.0\.0|([a-z0-9-]+\.)*example\.(com|org|net)$|www\.w3\.org$|schemas?\.)' \
         | LC_ALL=C sort | uniq -c | LC_ALL=C sort -k1,1rn -k2,2)"
 if [ -n "$hosts" ]; then
@@ -254,8 +254,8 @@ for i in "${!LABELS[@]}"; do
       # then line number, so the detail and the per-directory sample below are
       # identical from run to run.
       out="$(printf '%s\n' "$out" | LC_ALL=C sort -t: -k1,1 -k2,2n)"
-      RESULTS[$i]="$out"
-      COUNTS[$i]="$(printf '%s\n' "$out" | grep -c '')"
+      RESULTS[i]="$out"
+      COUNTS[i]="$(printf '%s\n' "$out" | grep -c '')"
       total=$((total + COUNTS[i]))
       groups=$((groups + 1))
       ;;

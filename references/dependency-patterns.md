@@ -272,8 +272,8 @@ relicensing is reliably stale. Verify before overriding a finding.
 
 | Dependency (import name) | Service | License situation |
 |---|---|---|
-| `@sentry/*`, `sentry-sdk` | Sentry error tracking | SDKs are MIT; the server is FSL (not OSI-approved, converts to Apache-2.0 after 2 years). Self-hosting is supported, so a self-hosted deployment is materially less lock-in than sentry.io - say which one the repo targets. |
-| `elasticsearch`, `@elastic/elasticsearch`, `@elastic/*` | Elasticsearch / Kibana | Version-dependent: SSPL/ELv2 only through 8.15; 8.16+ (2024) added an AGPLv3 option, which is OSI-approved. Check the version pinned in the manifest. Elastic Cloud is a hosted proprietary service regardless. OpenSearch (Apache-2.0) is the open fork. |
+| `@sentry/*`, `sentry-sdk` | Sentry error tracking | SDKs are MIT; the server is FSL (source-available, not OSI-approved; each release converts to Apache-2.0 after 2 years). A finding whether the repo targets sentry.io or a self-hosted Sentry - say which, the migration path differs. |
+| `elasticsearch`, `@elastic/elasticsearch`, `@elastic/*` | Elasticsearch / Kibana | Version-dependent: 7.10.2 and earlier are Apache-2.0; 7.11-8.15 are SSPL/ELv2 only (a finding); 8.16+ (2024) added an AGPLv3 option, which is OSI-approved (not a finding). Check the version pinned in the manifest, or the one a framework BOM manages (Spring Boot 2.5 -> 7.12). Elastic Cloud is a hosted proprietary service regardless. OpenSearch (Apache-2.0) is the open fork. |
 | `pinecone-client`, `@pinecone-database/pinecone` | Pinecone vector DB | Fully proprietary hosted service, no self-host path. Finding. (Contrast: Qdrant, Milvus, Chroma are Apache-2.0 and Weaviate core is BSD-3 - those are only lock-in when their *hosted* tier is used.) |
 | `launchdarkly-*`, `@launchdarkly/*` | LaunchDarkly feature flags | Proprietary SaaS. Finding. |
 | `snowflake-connector-*`, `snowflake-sdk` | Snowflake | Proprietary warehouse. Finding. |
@@ -324,6 +324,16 @@ naive "hosted SaaS = lock-in" reading produces a false positive.
 | AdMob, Facebook Instant Games, Steamworks, Epic Online Services | Proprietary platform/ad SDKs | Finding as platform rails; an adapter isolates the blast radius, it does not remove the coupling |
 | iText, JasperReports | Dual-licensed: OSI-approved copyleft (AGPL/LGPL) or paid commercial | Not a finding - record under Acceptable Dependencies with a commercial-licence note (see below) |
 | Highcharts, Handsontable | Proprietary UI libraries with a free **non-commercial** tier and no OSI-approved option - commonly mistaken for the row above | Finding - severity by R3 like any proprietary dependency. Tell: lock-file `license` is a URL, not an SPDX id |
+| Kendo UI, Syncfusion, CoreUI Pro, Aspose, jspreadsheet Pro, Spine runtimes, SurveyJS Creator | Commercial-licence libraries; their free siblings (jspreadsheet-ce, survey-core, CoreUI) are MIT | Finding, reported as a licence finding separate from service lock-in |
+| Acquia Cloud, Cloudflare API | Proprietary hosting/CDN platform APIs | Finding when code calls them (connector, cache purge); the CDN in front of a site is deployment, out of scope (R1) |
+| CKEditor CKBox/CKFinder/Cloud Services, TinyMCE Cloud | The editors are GPL; CKBox and Cloud Services are hosted, CKFinder is commercial self-hosted software | Finding; for the TinyMCE framework wrappers resolve whether they load Tiny Cloud or a self-hosted copy (R5) |
+| MaxMind GeoIP2/GeoLite2, IP2Location | Licence-key gated databases or paid web services | Finding, usually Low - a lookup behind one function is cheap to swap |
+| Moesif, Pydantic Logfire | Hosted telemetry SaaS | Finding |
+| Elastic APM (`elastic-apm-node`, ...) | Agents are open; APM Server has an Apache-2.0 `-oss` build (x-pack is Elastic License) | Judge by the Elasticsearch version behind it (row above) or Elastic Cloud |
+| Zapier, Clearbit, FullContact | Proprietary automation and data-enrichment SaaS | Finding |
+| DeepL, Google Translate, Microsoft Translator, Edge TTS, Linkup, Tinfoil | Proprietary hosted ML APIs | Finding; LibreTranslate is the self-hostable translation alternative |
+| Microsoft Graph, Office add-ins | Microsoft-only APIs | Finding; a plain Azure AD OIDC login is a standard protocol, not this row (R4) |
+| eMudhra eSign | Licensed Aadhaar eSign service provider (India) | Finding; note whether another eSign provider can be configured |
 
 ## Adding a vendor
 

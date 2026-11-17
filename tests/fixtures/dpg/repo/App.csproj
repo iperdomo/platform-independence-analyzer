@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup><PackageReference Include="Azure.Storage.Blobs" Version="12.0.0" /></ItemGroup>
+</Project>

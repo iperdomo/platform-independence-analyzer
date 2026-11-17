@@ -1,0 +1,3 @@
+<resources>
+  <string name="mpesa_endpoint">https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest</string>
+</resources>

@@ -1,0 +1,7 @@
+[dependencies]
+serde = "1"
+aws-sdk-s3 = { version = "1" }
+local-crate = { path = "../local" }
+renamed = { package = "reqwest", version = "0.12" }
+[dev-dependencies]
+tokio-test = "0.4"

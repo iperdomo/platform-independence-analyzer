@@ -1,0 +1,7 @@
+name: env
+dependencies:
+  - python=3.11
+  - conda-forge::gdal
+  - pip
+  - pip:
+    - pymongo==4.0

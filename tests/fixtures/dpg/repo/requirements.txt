@@ -1,0 +1,8 @@
+# comment
+-r requirements/base.txt
+--index-url https://pypi.org/simple
+Django>=4.2  # web
+google_cloud.storage[extra]==2.0
+sentry-sdk @ https://example.com/sentry.whl
+https://example.com/no-name.whl
+sentry-sdk[django]==2.0

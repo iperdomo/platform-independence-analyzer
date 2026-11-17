@@ -1,0 +1,3 @@
+<resources>
+  <plurals name="degrees"><item quantity="one">"%1$d daraja"</item></plurals>
+</resources>

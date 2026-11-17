@@ -1,0 +1,5 @@
+Package: x
+Depends: R (>= 4.0), ggplot2
+Imports: httr (>= 1.0),
+    googleCloudStorageR
+Suggests: testthat

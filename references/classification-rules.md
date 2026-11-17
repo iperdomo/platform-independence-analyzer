@@ -289,20 +289,22 @@ finding.
   | Client | Self-hostable target that reduces lock-in |
   |---|---|
   | `openai` and OpenAI-compatible SDKs | vLLM, Ollama, LiteLLM, LocalAI, TGI |
-  | `@sentry/*`, `sentry-sdk` | a self-hosted Sentry (check the DSN host) |
   | `posthog-*`, Matomo | a self-hosted instance |
   | `@supabase/*` | a self-hosted Supabase, or plain PostgREST + Postgres - a repo using the Supabase client purely as a PostgREST client against its own database is not locked into Supabase, and calling it "BaaS lock-in" from the package name alone is a false positive |
-  | `elasticsearch` / `@elastic/*` | a self-hosted cluster, or OpenSearch |
+  | `elasticsearch` / `@elastic/*` | a self-hosted cluster on 8.16+ (AGPL option) or 7.10.2 and earlier (Apache-2.0), or OpenSearch; 7.11-8.15 are SSPL/ELv2 only - check the pinned version |
   | `boto3` / `@aws-sdk/client-s3` | MinIO, Ceph, Garage |
   | `langfuse`, `livekit`, `pyvespa`, `clearml` | their self-hosted open-core servers |
+
+  Sentry is deliberately absent: its server is FSL (source-available, not
+  OSI-approved), so a self-hosted Sentry is still a proprietary dependency and
+  a finding. Note which one the repo targets - the migration path differs.
 
   Resolve the endpoint before applying this (R5 lists where to look). The
   exception does not apply when:
   - there is no endpoint override at all (the SDK hits the vendor's default
     hosted service - a finding);
   - the endpoint points at another proprietary SaaS (Azure OpenAI, Groq,
-    Together, Perplexity, Elastic Cloud, Sentry's own sentry.io on a paid
-    plan) - still a finding, and re-attribute it to that vendor;
+    Together, Perplexity, Elastic Cloud) - still a finding, and re-attribute it to that vendor;
   - the call uses a cloud-proprietary path such as `AnthropicBedrock` /
     `AnthropicVertex`;
   - **the endpoint is indeterminate** - a bare `os.environ["LLM_BASE_URL"]`
@@ -387,7 +389,7 @@ Reasons are short and contain no square brackets.
 
 Some dependencies are not proprietary at all and still shape the architecture:
 an Ollama runtime at `localhost:11434`, an Asterisk PBX, a PostgREST instance,
-a self-hosted Sentry, a SIP/STUN server named in `.env.example`. Today these
+a self-hosted PostHog, a SIP/STUN server named in `.env.example`. Today these
 are invisible to the audit - no vendor pattern matches them and no rule tells
 you what to do when one does.
 
@@ -419,7 +421,7 @@ off or charge for it".
 
 R4's self-hosted exception is only as good as the endpoint you can actually
 resolve. This rule applies to any client of a hostable service - an LLM
-runtime, Sentry, PostHog, Supabase/PostgREST, Elasticsearch, S3 - not just LLM
+runtime, PostHog, Supabase/PostgREST, Elasticsearch, S3 - not just LLM
 SDKs.
 
 When a `base_url` / `baseURL` / `endpoint` / DSN reads from an environment

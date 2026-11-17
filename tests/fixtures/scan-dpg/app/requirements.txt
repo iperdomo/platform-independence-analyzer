@@ -1,0 +1,8 @@
+gspread==6.0.0
+minimal-snowplow-tracker==0.0.2
+logfire>=1.0
+apify-client==1.6
+linkup-sdk==0.2
+edge-tts==6.1
+wagtail-zoom-integration==0.1
+wagtail-surveyjs==0.3

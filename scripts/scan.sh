@@ -128,6 +128,10 @@ EXCLUDES=(
   --glob '!**/packages.lock.json'
   --glob '!**/Package.resolved'
   --glob '!**/*.md'
+  --glob '!**/ChangeLog'        # release notes are prose, like *.md
+  --glob '!**/CHANGELOG*'
+  --glob '!**/CHANGES*'
+  --glob '!**/NEWS'
   --glob '!**/*.orig'           # merge/patch leftovers restate whole files
   --glob '!**/*.rej'
   --glob '!**/PLATFORM-DEPENDENCY-ANALYSIS.*'
@@ -152,6 +156,9 @@ EXCLUDES=(
   --glob '!**/*.mo'
   --glob '!**/*.arb'
   --glob '!**/*.xlf'
+  # Android translations (values-uz/, values-de/...); res/values/ stays scanned.
+  --glob '!**/res/values-*/strings.xml'
+  --glob '!**/res/values-*/translations.xml'
   # Notebook checkpoints duplicate every cell of their notebook.
   --glob '!**/.ipynb_checkpoints/**'
 )

@@ -1,0 +1,6 @@
+[libraries]
+play-services-maps = { module = "com.google.android.gms:play-services-maps", version = "18" }
+mapbox = { group = "com.mapbox.maps", name = "android", version = "11" }
+retrofit = "com.squareup.retrofit2:retrofit:2.9.0"
+[plugins]
+kotlin = { id = "org.jetbrains.kotlin.android", version = "1.9" }

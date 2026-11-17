@@ -1,0 +1,2 @@
+{"name": "web", "dependencies": {"firebase": "^10.0.0", "React": "18.2.0", "@acme/shared": "workspace:*"},
+ "devDependencies": {"firebase-tools": "^13.0.0"}, "peerDependencies": {"leaflet": "^1.9"}}

@@ -1,0 +1,9 @@
+[project]
+dependencies = ["openai>=1.0", "numpy"]
+[project.optional-dependencies]
+maps = ["googlemaps"]
+[tool.poetry.dependencies]
+python = "^3.11"
+twilio = "*"
+[tool.poetry.group.test.dependencies]
+pytest = "*"

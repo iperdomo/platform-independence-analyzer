@@ -1,0 +1,8 @@
+<project>
+  <dependencies>
+    <dependency><groupId>com.emudhra.esign</groupId><artifactId>eSignASPLibrary5</artifactId></dependency>
+    <dependency><groupId>io.confluent</groupId><artifactId>kafka-avro-serializer</artifactId></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-mongodb</artifactId></dependency>
+    <dependency><groupId>com.aspose</groupId><artifactId>aspose-cad</artifactId></dependency>
+  </dependencies>
+</project>

@@ -1,0 +1,14 @@
+[
+  {"dpgId": "GID0000001", "name": "Old", "category": "Open Software", "dpgSince": "2020-01-01",
+   "sourceURL": "https://github.com/old/old", "otherSources": null},
+  {"dpgId": "GID0000002", "name": "Data", "category": "Open Data", "dpgSince": "2026-01-01",
+   "sourceURL": "https://github.com/data/data", "otherSources": null},
+  {"dpgId": "GID0000003", "name": "Comma", "category": "Open Software", "dpgSince": "2025-06-01",
+   "sourceURL": "https://github.com/acme/core",
+   "otherSources": {"other": ["https://github.com/acme/cli, https://github.com/acme/web, https://github.com/acme/web/", "https://github.com/ACME/core.git", ""]}},
+  {"dpgId": "GID0000004", "name": "Blob", "category": "Open Software", "dpgSince": "2025-07-01",
+   "sourceURL": "https://github.com/blob/app",
+   "otherSources": {"other": ["{  \"secondary-source-urls\": [  \t\"https://github.com/blob/admin\", \"https://github.com/other/admin\"  ], \"https://github.com/blob/api\" }"]}},
+  {"dpgId": "GID0000005", "name": "Org only", "category": "Open Software", "dpgSince": "2025-05-01",
+   "sourceURL": "https://github.com/someorg/", "otherSources": {"other": ["https://docs.example.org/x/"]}}
+]

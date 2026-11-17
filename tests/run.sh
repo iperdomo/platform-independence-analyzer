@@ -37,7 +37,8 @@ expect_eq "scan: hit summary (exclusions and collision guards hold)" \
      3  Vercel AI Gateway
      1  AI/ML hosted services (beyond the big-5 LLM vendors)
      1  Web platform services (captcha, analytics tags, widgets)
-    14  TOTAL hits across 7 vendor groups" "$(printf '%s\n' "$out" | summary)"
+     1  Commercial-license libraries (not services)
+    15  TOTAL hits across 8 vendor groups" "$(printf '%s\n' "$out" | summary)"
 
 for path in vendor/ dist/ locales/ README.md web/ui/modal.js pnpm-lock.yaml \
             "provider.ts:7:" "provider.ts:8:"; do
@@ -58,8 +59,8 @@ out2="$(cd "$FX" && bash "$S/scan.sh" scan)"
 expect_eq "scan: output is identical across runs" "$out" "$out2"
 
 expect_eq "scan --extra: residual group is added to the summary" \
-  "     1  Highcharts (residual)" \
-  "$(cd "$FX" && bash "$S/scan.sh" --extra extra.tsv scan | summary | grep Highcharts)"
+  "     1  Handsontable (residual)" \
+  "$(cd "$FX" && bash "$S/scan.sh" --extra extra.tsv scan | summary | grep Handsontable)"
 
 : > "$TMP/empty.tsv"
 expect_eq "scan --extra: an empty residual file changes nothing" \
@@ -70,6 +71,34 @@ expect_eq "scan --extra: missing file exits 2" "2" "$?"
 
 PIA_PATTERNS="$TMP/missing.tsv" bash "$S/scan.sh" "$FX/scan" >/dev/null 2>&1
 expect_eq "scan: missing pattern table exits 2" "2" "$?"
+
+# Groups and alternations added from the DPG corpus (scripts/dpg_corpus.py):
+# one real declaration or call per addition, plus every false positive the
+# corpus showed before the patterns were tightened.
+dout="$(bash "$S/scan.sh" "$FX/scan-dpg")"
+expect_eq "scan: DPG-corpus additions hit their groups" \
+"     1  Google Maps
+     2  MongoDB
+     1  AWS
+     3  Microsoft 365 / Graph APIs
+     1  Google Cloud
+     1  Product analytics
+     1  Observability (Datadog/New Relic)
+     1  OpenAI
+     1  Vendor API endpoints (raw HTTP)
+     1  Realtime messaging SaaS (Pusher/PubNub/Ably)
+     5  Data, search, feature-flag and CMS SaaS
+     1  Support / CRM SaaS
+     2  Payments (non-Stripe)
+     1  E-signature and identity verification SaaS
+     1  SMS and chat messaging SaaS
+     6  AI/ML hosted services (beyond the big-5 LLM vendors)
+     3  Geospatial SaaS
+     2  Web platform services (captcha, analytics tags, widgets)
+     4  Commercial-license libraries (not services)
+    38  TOTAL hits across 19 vendor groups" "$(printf '%s\n' "$dout" | summary)"
+expect_eq "scan: corpus false positives (clearBit, com.squareup, Matrix pushers, ESRI Shapefile, word lists, prose, embeds) stay quiet" "0" \
+  "$(printf '%s\n' "$dout" | grep -c 'scan-dpg/negatives/')"
 
 np="$(bash "$S/scan.sh" --print-patterns | grep -c '^rg -in ')"
 nt="$(grep -cvE '^(#|$)' "$SKILL/references/patterns.tsv")"
@@ -226,6 +255,65 @@ left="$(printf '%s\n' "$msgs" | grep -c 'placeholder left')"
 expect_eq "report check: exec summary and file index still to write after finalize" "2" "$left"
 cp "$TMP/v.md" "$TMP/v2.md"; "${RP[@]}" finalize --date 2026-10-29 "$TMP/v2.md" >/dev/null
 cmp -s "$TMP/v.md" "$TMP/v2.md" && ok "report finalize: re-run is a no-op" || bad "report finalize: re-run is a no-op"
+
+# ------------------------------------------------------------ dpg_corpus.py
+DC=(python3 -I "$S/dpg_corpus.py")
+C="$TMP/corpus"
+"${DC[@]}" fetch "$C" --limit 3 --from-file "$FX/dpg/api.json" >/dev/null
+expect_eq "dpg fetch: category filter, newest first, limit" \
+  "GID0000004 GID0000003 GID0000005" \
+  "$(python3 -c 'import json,sys; print(*[d["dpgId"] for d in json.load(open(sys.argv[1]))])' "$C/dpgs.json")"
+expect_eq "dpg fetch: comma list and JSON blob split, duplicates dropped, nothing expanded" \
+"GID0000004 https://github.com/blob/app
+GID0000004 https://github.com/blob/admin
+GID0000004 https://github.com/other/admin
+GID0000004 https://github.com/blob/api
+GID0000003 https://github.com/acme/core
+GID0000003 https://github.com/acme/cli
+GID0000003 https://github.com/acme/web
+GID0000005 https://github.com/someorg
+GID0000005 https://docs.example.org/x" "$(sed 1d "$C/sources.tsv" | cut -f1,4 | tr '\t' ' ')"
+
+# clone, offline: one source already cloned, one that is not a git repository
+printf 'dpgId\tname\tfield\turl\nG1\tx\tsourceURL\thttps://example.com/acme/repo\nG1\tx\totherSources\thttp://127.0.0.1:9/org\n' \
+  > "$C/sources.tsv"
+mkdir -p "$C/G1/acme__repo" && gitc -C "$C/G1/acme__repo" init -q \
+  && gitc -C "$C/G1/acme__repo" commit -q --allow-empty -m init
+"${DC[@]}" clone "$C" >/dev/null 2>&1
+expect_eq "dpg clone: existing clone kept, non-repo URL skipped and logged" \
+  "exists not-a-repo" "$(sed 1d "$C/clone-log.tsv" | cut -f4 | tr '\n' ' ' | sed 's/ $//')"
+
+# inventory: the fixture repo holds one manifest of every supported kind
+rm -rf "$C/G1/acme__repo" && cp -r "$FX/dpg/repo" "$C/G1/acme__repo"
+printf '[{"dpgId": "G1", "name": "x", "dpgSince": "2026-01-01"}]\n' > "$C/dpgs.json"
+inv="$("${DC[@]}" inventory "$C" 2>/dev/null)"
+expect_eq "dpg inventory: direct deps of every manifest kind, node_modules pruned" \
+  "$(cat "$FX/dpg/expected-deps.tsv")" "$(sed 1d "$C/deps.tsv" | cut -f3,4)"
+printf '%s\n' "$inv" | grep -q '20 of 21 manifests parsed (1 errors)' \
+  && ok "dpg inventory: an unparseable manifest is counted, not skipped" \
+  || bad "dpg inventory: an unparseable manifest is counted, not skipped" "$inv"
+grep -q '^G1	acme__repo	bad/package.json	JSONDecodeError' "$C/inventory-errors.tsv" \
+  && ok "dpg inventory: the parse error is logged" || bad "dpg inventory: the parse error is logged"
+
+# coverage: declaration lines tested against a pattern table, like scan.sh does
+printf 'Test Firebase\t"firebase"\t\nTest Leaflet\tleaflet\t\nTest Firebase SDK\tcom\\.google\\.firebase\t\nTest AWS\tcom\\.amazonaws\t\nTest Sentry\tsentry\t\n' \
+  > "$TMP/cov.tsv"
+printf 'ecosystem\tdependency\tdpgs\tverdict\nnpm\tfirebase\t1\tproprietary\npypi\ttwilio\t1\tproprietary\nnpm\tnot-declared\t1\tproprietary\nmaven\tcom.amazonaws:aws-java-sdk-s3\t1\tproprietary\nmaven\tcom.google.firebase:firebase-auth\t1\tproprietary\n' \
+  > "$C/proprietary.tsv"
+"${DC[@]}" coverage "$C" --patterns "$TMP/cov.tsv" >/dev/null
+expect_eq "dpg coverage: caught, gap and undeclared proprietary deps" \
+"maven com.amazonaws:aws-java-sdk-s3 caught Test AWS
+maven com.google.firebase:firebase-auth caught Test Firebase SDK
+npm firebase caught Test Firebase
+pypi twilio gap
+npm not-declared not-in-deps" "$(sed 1d "$C/coverage.tsv" | cut -f1,2,7,8 | tr '\t' ' ' | sed 's/ *$//')"
+# okhttp/junit sit on the lines next to the Firebase and AWS declarations, and
+# django appears as an extra of sentry-sdk: none of that is a declaration
+expect_eq "dpg coverage: only real matches are reported, never a neighbouring line or an extra" \
+"gradle-plugin com.google.firebase.crashlytics Test Firebase SDK
+maven com.google.firebase:firebase-bom Test Firebase SDK
+npm leaflet Test Leaflet
+pypi sentry-sdk Test Sentry" "$(sed 1d "$C/coverage-other.tsv" | cut -f1,2,4 | tr '\t' ' ')"
 
 # --------------------------------------------------------------- plain ASCII
 nonascii="$(cd "$SKILL" && rg -l '[^\x00-\x7F]' --glob '!tasks/**' . 2>/dev/null)"

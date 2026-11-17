@@ -1,0 +1,16 @@
+{
+  "dependencies": {
+    "@govtechsg/ethers-aws-kms-signer": "^2.0.0",
+    "@ckeditor/ckeditor5-ckbox": "^41.0.0",
+    "@tinymce/tinymce-vue": "^5.0.0",
+    "react-google-charts": "^4.0.0",
+    "react-native-youtube-iframe": "^2.3.0",
+    "maxmind": "^4.3.0",
+    "highcharts": "^11.0.0",
+    "@progress/kendo-react-buttons": "^7.0.0",
+    "json-autotranslate": "^1.10.0"
+  },
+  "devDependencies": {
+    "@types/office-js": "^1.0.0"
+  }
+}

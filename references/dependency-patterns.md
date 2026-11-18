@@ -123,6 +123,22 @@ calls:
 Either way the wrapper import is worth surfacing in Tier 1 - decide the role in
 Tier 2, and name the underlying vendor in the finding title.
 
+**The framework's own hosted services are separate vendors.** LangChain sells
+two proprietary services of its own: LangSmith (tracing, evaluation) and
+LangGraph Platform (hosted agent server). Two things make them easy to get
+wrong:
+
+- **Installed is not used.** `langsmith` is a hard dependency of
+  `langchain-core` and `langgraph-sdk` arrives with `langchain` 1.x, so both
+  sit in every LangChain lock file. A lock-file entry alone is not a finding.
+- **Used needs no import.** `langchain-core` sends every run to LangSmith as
+  soon as `LANGSMITH_TRACING=true` (or the older `LANGCHAIN_TRACING_V2=true`)
+  is in the environment. The only evidence may be an env template or a config
+  default, so judge the gate: tracing on by default is a finding; an opt-in
+  adapter that is off by default, with an open backend as the default (a
+  project-owned callback handler, self-hosted Langfuse), is Acceptable. If
+  only deployment config turns it on, R1 applies: evidence, not a finding.
+
 ## Mobile Binding Attribution
 
 React Native, the Expo SDK, and most RN community modules are MIT-licensed, so
@@ -276,6 +292,8 @@ relicensing is reliably stale. Verify before overriding a finding.
 | `elasticsearch`, `@elastic/elasticsearch`, `@elastic/*` | Elasticsearch / Kibana | Version-dependent: 7.10.2 and earlier are Apache-2.0; 7.11-8.15 are SSPL/ELv2 only (a finding); 8.16+ (2024) added an AGPLv3 option, which is OSI-approved (not a finding). Check the version pinned in the manifest, or the one a framework BOM manages (Spring Boot 2.5 -> 7.12). Elastic Cloud is a hosted proprietary service regardless. OpenSearch (Apache-2.0) is the open fork. |
 | `pinecone-client`, `@pinecone-database/pinecone` | Pinecone vector DB | Fully proprietary hosted service, no self-host path. Finding. (Contrast: Qdrant, Milvus, Chroma are Apache-2.0 and Weaviate core is BSD-3 - those are only lock-in when their *hosted* tier is used.) |
 | `launchdarkly-*`, `@launchdarkly/*` | LaunchDarkly feature flags | Proprietary SaaS. Finding. |
+| `langsmith`, `LangChainTracer`, `LANGSMITH_*` / `LANGCHAIN_TRACING_V2` env vars | LangSmith (LangChain tracing and evals) | SDK is MIT; the service is proprietary SaaS, and self-hosting is an add-on to the Enterprise plan that needs a licence key (checked 2026-11). Judge whether tracing is enabled, not whether the SDK is installed - see "LLM Wrapper Attribution". Langfuse (MIT core, self-hostable) is the open alternative. |
+| `langgraph-sdk`, `@langchain/langgraph-sdk`, `langgraph-api`, `*.langgraph.app` | LangGraph Platform (hosted agent server) | The `langgraph` library, `langgraph-sdk` and `langgraph-cli` are MIT; the server, `langgraph-api`, is Elastic-2.0, not OSI-approved (checked 2026-11), so a self-hosted deployment is still proprietary. Finding when code calls a remote graph (`get_client`, `RemoteGraph`); the `langgraph` library alone is not one. |
 | `snowflake-connector-*`, `snowflake-sdk` | Snowflake | Proprietary warehouse. Finding. |
 | `databricks-*`, `databricks-sql-connector` | Databricks | Proprietary platform (Spark itself is Apache-2.0; the platform is not). Finding. |
 | `contentful`, `@contentful/*`, `@sanity/client` | Contentful / Sanity CMS | Proprietary hosted CMS. Finding. |

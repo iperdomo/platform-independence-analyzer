@@ -35,10 +35,10 @@ expect_eq "scan: hit summary (exclusions and collision guards hold)" \
      1  Google Cloud
      2  OpenAI
      3  Vercel AI Gateway
-     1  AI/ML hosted services (beyond the big-5 LLM vendors)
+     5  AI/ML hosted services (beyond the big-5 LLM vendors)
      1  Web platform services (captcha, analytics tags, widgets)
      1  Commercial-license libraries (not services)
-    15  TOTAL hits across 8 vendor groups" "$(printf '%s\n' "$out" | summary)"
+    19  TOTAL hits across 8 vendor groups" "$(printf '%s\n' "$out" | summary)"
 
 for path in vendor/ dist/ locales/ README.md web/ui/modal.js pnpm-lock.yaml \
             "provider.ts:7:" "provider.ts:8:"; do
@@ -52,8 +52,24 @@ done
 expect_eq "scan: Ruby and Rust shapes are matched" "3" \
   "$(printf '%s\n' "$out" | grep -cE 'billing\.rb:(1|5):|lib\.rs:1:')"
 
-expect_eq "scan: URL HOSTS lists hardcoded hosts, minus localhost" "      1 api.rss2json.com" \
+expect_eq "scan: URL HOSTS lists hardcoded hosts, minus localhost" \
+"      1 api.rss2json.com
+      1 eu.api.smith.langchain.com" \
   "$(printf '%s\n' "$out" | sed -n '/== URL HOSTS/,/^#/p' | grep -v '^[=#]')"
+
+# Env templates are dotfiles: scanned on purpose. A real .env (secrets) and
+# hidden directories stay out.
+expect_eq "scan: env templates are scanned" "2" \
+  "$(printf '%s\n' "$out" | grep -c '^scan/\.env\.example:')"
+expect_eq "scan: .env and hidden directories are not scanned" "0" \
+  "$(printf '%s\n' "$out" | grep -cE '^scan/(\.env:|\.cache/)')"
+
+# LangChain's hosted services match; the open langchain_core and langgraph
+# libraries do not.
+expect_eq "scan: LangSmith and LangGraph Platform, not the open libraries" \
+"scan/app/tracing.py:1
+scan/app/tracing.py:2" \
+  "$(printf '%s\n' "$out" | grep -o '^scan/app/tracing\.py:[0-9]*')"
 
 out2="$(cd "$FX" && bash "$S/scan.sh" scan)"
 expect_eq "scan: output is identical across runs" "$out" "$out2"

@@ -47,7 +47,9 @@
 # target/.next/coverage are already skipped when gitignored. The --glob
 # exclusions below cover cases rg will not skip on its own (committed vendor/
 # and Pods/ dirs, generated Xcode/Expo artifacts, lock files, and Markdown docs
-# that mention vendor names in prose).
+# that mention vendor names in prose). rg also skips hidden files, so env
+# templates (.env.example and kin) are found separately and passed as explicit
+# paths - see ENV_TEMPLATE_GLOBS.
 
 set -uo pipefail
 
@@ -170,7 +172,7 @@ for g in "${EXCLUDES[@]}"; do
   g="${g#!}"; g="${g#'**/'}"; g="${g%'**'}"
   EXCLUDES_HUMAN="$EXCLUDES_HUMAN $g"
 done
-EXCLUDES_HUMAN="${EXCLUDES_HUMAN# } (plus everything .gitignore excludes)"
+EXCLUDES_HUMAN="${EXCLUDES_HUMAN# } (plus everything .gitignore excludes, and hidden files other than env templates)"
 
 if [ "$PRINT_ONLY" -eq 1 ]; then
   echo "# rg one-liners generated from the pattern table (${#LABELS[@]} groups)."
@@ -200,10 +202,24 @@ CONFIG_GLOBS=(
   -g '.flutter-plugins-dependencies' -g 'gradle/libs.versions.toml'
 )
 
+# Env templates are dotfiles, which rg skips by default, yet they are where many
+# vendors are declared (SKILL.md Step 2). Same names as NONMANIFEST_GLOBS in
+# manifests.sh. Passing them as explicit paths keeps every other hidden file and
+# directory out of the scan, and a real .env (secrets) is never read.
+ENV_TEMPLATE_GLOBS=(
+  -g '.env.example' -g '.env.sample' -g '.env.template' -g '.env.defaults' -g '.env.dist'
+)
+ENV_TEMPLATES=()
+while IFS= read -r f; do
+  [ -n "$f" ] && ENV_TEMPLATES+=("$f")
+done < <(rg --files --hidden "${ENV_TEMPLATE_GLOBS[@]}" --glob '!**/node_modules/**' \
+           "${EXCLUDES[@]}" -- "$ROOT" 2>/dev/null | LC_ALL=C sort)
+
 echo "# platform-independence scan"
 echo "# root: $ROOT"
 echo "# patterns: $PATTERNS_FILE${EXTRA_FILE:+ + $EXTRA_FILE} (${#LABELS[@]} groups)"
 echo "# excluded: $EXCLUDES_HUMAN"
+echo "# env templates scanned: ${ENV_TEMPLATES[*]:-none}"
 echo "# A vendor whose only trace is in an excluded path produces NO hits here."
 echo
 
@@ -221,7 +237,8 @@ fi
 # Every distinct URL host in scanned files. A hardcoded API host is often the
 # only trace of a vendor no pattern knows and no manifest declares.
 hosts="$(rg -oi --no-filename --no-line-number "${EXCLUDES[@]}" \
-          -e 'https?://[a-z0-9-]+(\.[a-z0-9-]+)+' -- "$ROOT" 2>/dev/null \
+          -e 'https?://[a-z0-9-]+(\.[a-z0-9-]+)+' \
+          -- "$ROOT" ${ENV_TEMPLATES[@]+"${ENV_TEMPLATES[@]}"} 2>/dev/null \
         | sed -E 's|^[A-Za-z]+://||' | tr '[:upper:]' '[:lower:]' \
         | grep -vE '^(localhost|127\.|0\.0\.0\.0|([a-z0-9-]+\.)*example\.(com|org|net)$|www\.w3\.org$|schemas?\.)' \
         | LC_ALL=C sort | uniq -c | LC_ALL=C sort -k1,1rn -k2,2)"
@@ -244,7 +261,7 @@ for i in "${!LABELS[@]}"; do
   pat="${PATTERNS[$i]}"
 
   out="$(rg -in --no-heading --color=never --max-columns 200 --max-columns-preview \
-        "${EXCLUDES[@]}" -e "$pat" -- "$ROOT")"
+        "${EXCLUDES[@]}" -e "$pat" -- "$ROOT" ${ENV_TEMPLATES[@]+"${ENV_TEMPLATES[@]}"})"
   rc=$?
 
   case "$rc" in
